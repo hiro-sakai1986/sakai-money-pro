@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f5f3f5">
-<title>サカイ家 MONEY Pro 4.1</title>
+<title>サカイ家 MONEY Pro 5.0</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -29,27 +29,58 @@ canvas{width:100%;height:auto;max-height:310px}.tabs{display:grid;grid-template-
 nav{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(6,1fr);background:rgba(250,249,250,.97);backdrop-filter:blur(20px);border-top:.5px solid var(--line);padding:5px 2px calc(7px + env(safe-area-inset-bottom))}
 nav button{background:transparent;color:#8e8e93;font-size:10px;padding:4px 1px}nav button.active{color:var(--accent)}nav span{display:block;font-size:24px;line-height:28px}
 @media(max-width:430px){.form{grid-template-columns:1fr}.grid3{grid-template-columns:1fr 1fr}.metric{font-size:23px}}
+
+body.dark{--bg:#151416;--card:#211f22;--text:#f5f5f7;--muted:#aaa6ad;--accent:#c292a0;--soft:#2e2b2f;--line:#3a363b;--good:#1d3a27;--warn:#4a3b16;--bad:#48211f}
+body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
+.top-actions{display:flex;gap:8px;align-items:center}.icon-btn{background:var(--soft);padding:10px 12px}
+.dashboard-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.big-card{grid-column:1/-1}
+.kpi-delta{font-size:12px;margin-top:6px}
+.legend{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:12px}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:12px}.dot{width:10px;height:10px;border-radius:50%}
+.dividend-calendar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.div-month{background:var(--soft);border-radius:14px;padding:10px;text-align:center}.div-month strong{display:block;margin-top:4px}
+.fire-card{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.fire-box{background:var(--soft);border-radius:15px;padding:11px;text-align:center}.fire-box strong{display:block;font-size:18px;margin-top:4px}
+.asset-input-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.nisa-row{display:grid;grid-template-columns:1.2fr .7fr .7fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:.5px solid var(--line)}
+@media(max-width:430px){.dividend-calendar{grid-template-columns:repeat(2,1fr)}.fire-card{grid-template-columns:1fr}.nisa-row{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
-<header><h1>サカイ家 MONEY Pro 4.1</h1><div class="sub">安定修正版｜家計・投資・保険・教育・ローン・未来予測</div></header>
+<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.0</h1><div class="sub">完成版｜資産配分・配当・NISA・FIRE・ダークモード</div></div><div class="top-actions"><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
 <main>
 <section id="home" class="screen active">
 <div class="hero">ダッシュボード</div>
 <div class="yearbar"><div><label>表示年</label><select id="globalYear"></select></div><button class="secondary" id="addYear">翌年を追加</button></div>
-<div class="section">資産</div>
+
+<div class="section">純資産</div>
+<div class="dashboard-grid">
+<div class="card big-card"><div class="label">家・車を含む純資産</div><div id="homeNet" class="metric">0万円</div><div id="netDelta" class="kpi-delta">前月比 0万円</div></div>
+<div class="card"><div class="label">金融資産</div><div id="homeFinancial" class="metric">0万円</div></div>
+<div class="card"><div class="label">負債</div><div id="homeDebt" class="metric">0万円</div></div>
+</div>
+
+<div class="section">資産内訳</div>
 <div class="grid2">
 <div class="card"><div class="label">現金</div><div id="homeCash" class="metric">0万円</div></div>
 <div class="card"><div class="label">夫婦の投資</div><div id="homeInvest" class="metric">0万円</div></div>
 <div class="card"><div class="label">保険価値</div><div id="homeInsurance" class="metric">0万円</div></div>
-<div class="card"><div class="label">住宅ローン</div><div id="homeLoan" class="metric">0万円</div></div>
+<div class="card"><div class="label">住宅・車</div><div id="homeRealAssets" class="metric">0万円</div></div>
 </div>
-<div class="section">純資産</div><div class="card"><div id="homeNet" class="metric">0万円</div></div>
+
+<div class="section">資産配分</div>
+<div class="card"><canvas id="allocationChart" width="720" height="360"></canvas><div id="allocationLegend" class="legend"></div></div>
+
 <div class="section">基本資産を編集</div>
-<div class="card"><div class="form">
+<div class="card"><div class="asset-input-grid">
 <div><label>現金（万円）</label><input id="baseCash" type="number" step=".1"></div>
 <div><label>住宅ローン残高（万円）</label><input id="baseLoan" type="number" step=".1"></div>
+<div><label>自宅の現在価値（万円）</label><input id="homeValue" type="number" step=".1"></div>
+<div><label>車・バイク価値（万円）</label><input id="vehicleValue" type="number" step=".1"></div>
+<div><label>その他の負債（万円）</label><input id="otherDebt" type="number" step=".1"></div>
+<div><label>前月純資産（万円）</label><input id="lastNetWorth" type="number" step=".1"></div>
 </div><button class="primary" id="saveBase">保存</button></div>
+
 <div class="section">月別収支</div><div class="card"><canvas id="homeChart" width="720" height="350"></canvas></div>
 </section>
 
@@ -72,6 +103,14 @@ nav button{background:transparent;color:#8e8e93;font-size:10px;padding:4px 1px}n
 <div class="section">評価額</div><div class="grid3"><div class="card"><div class="label">本人</div><div id="selfTotal" class="metric">0万円</div></div><div class="card"><div class="label">夫</div><div id="husbandTotal" class="metric">0万円</div></div><div class="card"><div class="label">合計</div><div id="familyTotal" class="metric">0万円</div></div></div>
 <div class="section">保有資産</div><div class="card table-wrap"><table class="table"><thead><tr><th>名称</th><th>評価額</th><th>損益</th></tr></thead><tbody id="assetRows"></tbody></table><button class="primary" id="saveInvest">保存</button></div>
 <div class="section">追加</div><div class="card"><div class="form"><div><label>名称</label><input id="newAssetName"></div><div><label>評価額（万円）</label><input id="newAssetValue" type="number" step=".1"></div></div><button class="primary" id="addAsset">追加</button></div>
+
+<div class="section">配当金カレンダー</div>
+<div class="card"><div id="dividendCalendar" class="dividend-calendar"></div><div class="row"><span>年間配当見込み</span><strong id="annualDividend">0円</strong></div></div>
+
+<div class="section">NISA積立</div>
+<div class="card"><div id="nisaList"></div>
+<div class="form" style="margin-top:10px"><div><label>商品名</label><input id="newNisaName" placeholder="例：S&P500"></div><div><label>月積立（万円）</label><input id="newNisaMonthly" type="number" step=".1"></div></div>
+<button class="primary" id="addNisa">追加</button><button class="secondary" id="saveNisa" style="width:100%;margin-top:8px">保存</button></div>
 </section>
 
 <section id="education" class="screen">
@@ -86,8 +125,16 @@ nav button{background:transparent;color:#8e8e93;font-size:10px;padding:4px 1px}n
 </section>
 
 <section id="future" class="screen">
-<div class="hero">未来予測</div><div class="card"><div class="form"><div><label>毎月貯金（万円）</label><input id="futureSaving" type="number" step=".1"></div><div><label>毎月投資（万円）</label><input id="futureInvest" type="number" step=".1"></div><div><label>想定利回り（%）</label><input id="futureRate" type="number" step=".1"></div><div><label>退職年齢</label><input id="retireAge" type="number"></div></div><button class="primary" id="saveFuture">再計算</button></div>
+<div class="hero">未来予測</div><div class="card"><div class="form"><div><label>毎月貯金（万円）</label><input id="futureSaving" type="number" step=".1"></div><div><label>毎月投資（万円）</label><input id="futureInvest" type="number" step=".1"></div><div><label>想定利回り（%）</label><input id="futureRate" type="number" step=".1"></div><div><label>退職年齢</label><input id="retireAge" type="number"></div><div><label>退職後の年間支出（万円）</label><input id="annualSpend" type="number" step="1"></div></div><button class="primary" id="saveFuture">再計算</button></div>
 <div class="grid2"><div class="card"><div class="label">65歳</div><div id="future65" class="metric">0万円</div></div><div class="card"><div class="label">90歳</div><div id="future90" class="metric">0万円</div></div></div>
+
+<div class="section">FIRE・退職目安</div>
+<div class="fire-card">
+<div class="fire-box"><span>55歳退職</span><strong id="fire55">判定中</strong></div>
+<div class="fire-box"><span>60歳退職</span><strong id="fire60">判定中</strong></div>
+<div class="fire-box"><span>65歳退職</span><strong id="fire65">判定中</strong></div>
+</div>
+<div class="card" style="margin-top:10px"><div class="row"><span>FIRE目標資産</span><strong id="fireTarget">0万円</strong></div><div class="row"><span>目標まで</span><strong id="fireGap">0万円</strong></div></div>
 <div class="section">データ管理</div><div class="card"><div class="grid2"><button class="secondary" id="exportData">バックアップ</button><button class="secondary" id="importData">復元</button></div><input id="importFile" type="file" accept=".json" hidden></div>
 </section>
 </main>

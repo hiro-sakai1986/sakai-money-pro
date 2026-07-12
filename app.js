@@ -1,11 +1,11 @@
 (()=>{
 "use strict";
 const $=id=>document.getElementById(id);
-const KEY="sakaiMoneyPro41";
+const KEY="sakaiMoneyPro50";
 const nowY=new Date().getFullYear();
 const money=v=>`${Number(v||0).toLocaleString("ja-JP",{maximumFractionDigits:1})}万円`;
 const defaults={
- selectedYear:nowY,cash:900,yearData:{},
+ selectedYear:nowY,cash:900,homeValue:4600,vehicleValue:250,otherDebt:0,lastNetWorth:0,dark:false,yearData:{},
  assets:[
   {owner:"本人",name:"ソフトバンク",value:20.47,pl:8.43},
   {owner:"本人",name:"MSプレH無",value:160,pl:0},
@@ -17,14 +17,14 @@ const defaults={
  insurance:[{name:"学資保険",value:0},{name:"個人年金",value:0}],
  children:[{name:"長女",saved:0,target:500,monthly:1},{name:"次女",saved:0,target:500,monthly:1},{name:"三女",saved:0,target:500,monthly:1}],
  loan:{balance:4400,rate:1.05,payment:10.8,age:40},
- future:{saving:2,invest:7,rate:4,retireAge:65}
+ future:{saving:2,invest:7,rate:4,retireAge:65,annualSpend:300},nisa:[{name:"オルカン",monthly:2.5},{name:"S&P500",monthly:1.5}],dividends:{}
 };
 const clone=x=>JSON.parse(JSON.stringify(x));
 function load(){
  try{
   const s=JSON.parse(localStorage.getItem(KEY)||"null");
   if(s)return {...clone(defaults),...s};
-  for(const k of ["sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]){
+  for(const k of ["sakaiMoneyPro41","sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]){
    const old=JSON.parse(localStorage.getItem(k)||"null");
    if(old){
     const n={...clone(defaults),...old};
@@ -55,11 +55,76 @@ function drawBars(){
  ctx.strokeStyle="#e5e5ea";for(let i=0;i<5;i++){const y=top+i*ph/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-10,y);ctx.stroke()}
  rows.forEach((r,i)=>{keys.forEach((k,j)=>{const bh=r[k]/max*ph,x=left+i*g+g*.08+j*(bw+2);ctx.fillStyle=colors[j];ctx.fillRect(x,top+ph-bh,bw,bh)});ctx.fillStyle="#777";ctx.font="12px sans-serif";ctx.textAlign="center";ctx.fillText(`${i+1}月`,left+i*g+g/2,h-12)});
 }
+
+function ensureV50(){
+ if(state.homeValue===undefined)state.homeValue=4600;
+ if(state.vehicleValue===undefined)state.vehicleValue=250;
+ if(state.otherDebt===undefined)state.otherDebt=0;
+ if(state.lastNetWorth===undefined)state.lastNetWorth=0;
+ if(state.dark===undefined)state.dark=false;
+ if(!Array.isArray(state.nisa))state.nisa=[];
+ state.assets.forEach(x=>{if(x.dividend===undefined)x.dividend=0;if(x.dividendMonths===undefined)x.dividendMonths="6・12"});
+ if(!state.future.annualSpend)state.future.annualSpend=300;
+}
+ensureV50();
+function financialAssets(){
+ return (+state.cash||0)+totalInvest("本人")+totalInvest("夫")+state.insurance.reduce((a,x)=>a+(+x.value||0),0);
+}
+function realAssets(){return (+state.homeValue||0)+(+state.vehicleValue||0)}
+function debts(){return (+state.loan.balance||0)+(+state.otherDebt||0)}
+function netWorth(){return financialAssets()+realAssets()-debts()}
+function drawDonut(canvas,items,legend){
+ const ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
+ ctx.clearRect(0,0,w,h);
+ const vals=items.filter(x=>x.value>0),total=vals.reduce((a,x)=>a+x.value,0);
+ if(!total){ctx.fillStyle="#777";ctx.font="18px sans-serif";ctx.textAlign="center";ctx.fillText("データを入力すると表示されます",w/2,h/2);legend.innerHTML="";return}
+ const colors=["#956775","#5b7fa3","#c9ab6d","#6f9f7d","#b9807a","#8d78a8"];
+ let a=-Math.PI/2,cx=w/2,cy=h/2,r=Math.min(w,h)*.34;
+ vals.forEach((x,i)=>{const b=a+x.value/total*Math.PI*2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,a,b);ctx.closePath();ctx.fillStyle=colors[i%colors.length];ctx.fill();a=b});
+ ctx.beginPath();ctx.arc(cx,cy,r*.56,0,Math.PI*2);ctx.fillStyle=getComputedStyle(document.body).getPropertyValue("--card").trim()||"#fff";ctx.fill();
+ ctx.fillStyle=getComputedStyle(document.body).getPropertyValue("--text").trim()||"#111";ctx.font="bold 22px sans-serif";ctx.textAlign="center";ctx.fillText(money(total),cx,cy+7);
+ legend.innerHTML=vals.map((x,i)=>`<div class="legend-item"><span class="dot" style="background:${colors[i%colors.length]}"></span><span>${x.name} ${((x.value/total)*100).toFixed(1)}%</span></div>`).join("");
+}
+function dividendMonths(text){return String(text||"").split(/[・,、\s]+/).map(Number).filter(x=>x>=1&&x<=12)}
+function annualDividendTotal(ownerFilter=null){
+ return state.assets.filter(x=>!ownerFilter||x.owner===ownerFilter).reduce((sum,x)=>sum+(+x.dividend||0),0);
+}
+function renderDividends(){
+ const months=Array.from({length:12},(_,i)=>({m:i+1,v:0}));
+ state.assets.forEach(x=>{const annual=+x.dividend||0,ms=dividendMonths(x.dividendMonths);if(ms.length)ms.forEach(m=>months[m-1].v+=annual/ms.length)});
+ $("dividendCalendar").innerHTML=months.map(x=>`<div class="div-month"><span>${x.m}月</span><strong>${Math.round(x.v).toLocaleString()}円</strong></div>`).join("");
+ $("annualDividend").textContent=`${Math.round(months.reduce((a,x)=>a+x.v,0)).toLocaleString()}円`;
+}
+function renderNisa(){
+ $("nisaList").innerHTML=state.nisa.length?state.nisa.map((x,i)=>`<div class="nisa-row"><input data-nisa="${i}" data-field="name" value="${x.name}"><input data-nisa="${i}" data-field="monthly" type="number" step=".1" value="${x.monthly}"><span>万円/月</span><button class="mini" data-del-nisa="${i}">削除</button></div>`).join(""):'<div class="notice">NISA積立は未登録です。</div>';
+ document.querySelectorAll("[data-del-nisa]").forEach(b=>b.onclick=()=>{state.nisa.splice(+b.dataset.delNisa,1);save();renderNisa()});
+}
+function fireProjection(retireAge){
+ const current=state.loan.age||40;
+ let asset=financialAssets();
+ for(let age=current;age<90;age++){
+   if(age<retireAge) asset=asset*(1+state.future.rate/100)+(state.future.saving+state.future.invest)*12;
+   else asset=asset*(1+state.future.rate/100)-state.future.annualSpend;
+ }
+ return asset;
+}
+function renderFire(){
+ const target=(state.future.annualSpend||300)*25,gap=Math.max(0,target-financialAssets());
+ $("fireTarget").textContent=money(target);$("fireGap").textContent=money(gap);
+ [55,60,65].forEach(a=>{$(`fire${a}`).textContent=fireProjection(a)>=0?"○ 可能":"△ 要調整"});
+}
+
 function renderHome(){
  fillYears();
- const inv=totalInvest("本人")+totalInvest("夫"),ins=state.insurance.reduce((a,x)=>a+(+x.value||0),0);
- $("homeCash").textContent=money(state.cash);$("homeInvest").textContent=money(inv);$("homeInsurance").textContent=money(ins);$("homeLoan").textContent=money(state.loan.balance);$("homeNet").textContent=money(state.cash+inv+ins-state.loan.balance);
- $("baseCash").value=state.cash;$("baseLoan").value=state.loan.balance;drawBars();
+ const inv=totalInvest("本人")+totalInvest("夫"),ins=state.insurance.reduce((a,x)=>a+(+x.value||0),0),net=netWorth(),delta=net-(+state.lastNetWorth||0);
+ $("homeCash").textContent=money(state.cash);$("homeInvest").textContent=money(inv);$("homeInsurance").textContent=money(ins);$("homeRealAssets").textContent=money(realAssets());
+ $("homeFinancial").textContent=money(financialAssets());$("homeDebt").textContent=money(debts());$("homeNet").textContent=money(net);
+ $("netDelta").textContent=`前月比 ${delta>=0?"+":""}${money(delta)}`;$("netDelta").className=`kpi-delta ${delta>=0?"positive":"negative"}`;
+ $("baseCash").value=state.cash;$("baseLoan").value=state.loan.balance;$("homeValue").value=state.homeValue;$("vehicleValue").value=state.vehicleValue;$("otherDebt").value=state.otherDebt;$("lastNetWorth").value=state.lastNetWorth;
+ drawDonut($("allocationChart"),[
+  {name:"現金",value:+state.cash||0},{name:"投資",value:inv},{name:"保険",value:ins},{name:"自宅",value:+state.homeValue||0},{name:"車・バイク",value:+state.vehicleValue||0}
+ ],$("allocationLegend"));
+ drawBars();
 }
 function loadBook(){
  fillYears();const m=+$("bookMonth").value,x=ensureYear(state.selectedYear)[m]||{};
@@ -77,32 +142,37 @@ function renderReceipts(){const x=ensureYear(state.selectedYear)[+$("bookMonth")
 function renderYear(){let a={income:0,expense:0,investment:0,saving:0};for(let m=1;m<=12;m++){const t=monthTotal(m);Object.keys(a).forEach(k=>a[k]+=t[k])}$("yearIncome").textContent=money(a.income);$("yearExpense").textContent=money(a.expense);$("yearInvest").textContent=money(a.investment);$("yearSaving").textContent=money(a.saving)}
 function renderInvest(){
  const self=totalInvest("本人"),hus=totalInvest("夫");$("selfTotal").textContent=money(self);$("husbandTotal").textContent=money(hus);$("familyTotal").textContent=money(self+hus);
- const rows=state.assets.filter(x=>x.owner===owner);$("assetRows").innerHTML=rows.length?rows.map(x=>{const i=state.assets.indexOf(x);return `<tr><td><input data-asset="${i}" data-field="name" value="${x.name}"></td><td><input data-asset="${i}" data-field="value" type="number" value="${x.value}"></td><td><input data-asset="${i}" data-field="pl" type="number" value="${x.pl||0}"></td></tr>`}).join(""):'<tr><td colspan="3">未登録</td></tr>';
+ const rows=state.assets.filter(x=>x.owner===owner);$("assetRows").innerHTML=rows.length?rows.map(x=>{const i=state.assets.indexOf(x);return `<tr><td><input data-asset="${i}" data-field="name" value="${x.name}"></td><td><input data-asset="${i}" data-field="value" type="number" value="${x.value}"></td><td><input data-asset="${i}" data-field="pl" type="number" value="${x.pl||0}"></td><td><input data-asset="${i}" data-field="dividend" type="number" value="${x.dividend||0}" title="年間配当円"></td><td><input data-asset="${i}" data-field="dividendMonths" value="${x.dividendMonths||'6・12'}" title="受取月"></td></tr>`}).join(""):'<tr><td colspan="5">未登録</td></tr>';
  document.querySelectorAll("[data-owner]").forEach(b=>b.classList.toggle("active",b.dataset.owner===owner));
 }
-function saveInvest(){document.querySelectorAll("[data-asset]").forEach(el=>{const x=state.assets[+el.dataset.asset],f=el.dataset.field;x[f]=f==="name"?el.value:(+el.value||0)});save();renderAll();alert("保存しました")}
+function saveInvest(){document.querySelectorAll("[data-asset]").forEach(el=>{const x=state.assets[+el.dataset.asset],f=el.dataset.field;x[f]=(f==="name"||f==="dividendMonths")?el.value:(+el.value||0)});save();renderAll();alert("保存しました")}
 function renderEducation(){
  $("insuranceList").innerHTML=state.insurance.map((x,i)=>`<div class="card"><div class="form"><div><label>保険名</label><input data-ins="${i}" data-field="name" value="${x.name}"></div><div><label>現在価値（万円）</label><input data-ins="${i}" data-field="value" type="number" value="${x.value}"></div></div></div>`).join("");
  $("childrenList").innerHTML=state.children.map((x,i)=>{const p=Math.min(100,(+x.saved||0)/(+x.target||1)*100);return `<div class="card"><strong>${x.name}</strong><div class="form"><div><label>準備額（万円）</label><input data-child="${i}" data-field="saved" type="number" value="${x.saved}"></div><div><label>目標額（万円）</label><input data-child="${i}" data-field="target" type="number" value="${x.target}"></div><div><label>月積立（万円）</label><input data-child="${i}" data-field="monthly" type="number" value="${x.monthly}"></div></div><div class="row"><span>達成率</span><strong>${p.toFixed(1)}%</strong></div><div class="progress"><i style="width:${p}%"></i></div></div>`}).join("");
 }
-function saveEducation(){document.querySelectorAll("[data-ins]").forEach(el=>{const x=state.insurance[+el.dataset.ins],f=el.dataset.field;x[f]=f==="name"?el.value:(+el.value||0)});document.querySelectorAll("[data-child]").forEach(el=>{state.children[+el.dataset.child][el.dataset.field]=+el.value||0});save();renderAll();alert("保存しました")}
+function saveEducation(){document.querySelectorAll("[data-ins]").forEach(el=>{const x=state.insurance[+el.dataset.ins],f=el.dataset.field;x[f]=(f==="name"||f==="dividendMonths")?el.value:(+el.value||0)});document.querySelectorAll("[data-child]").forEach(el=>{state.children[+el.dataset.child][el.dataset.field]=+el.value||0});save();renderAll();alert("保存しました")}
 function renderLoan(){const l=state.loan;$("loanBalance").value=l.balance;$("loanRate").value=l.rate;$("loanPayment").value=l.payment;$("loanAge").value=l.age;const interest=l.balance*l.rate/100/12,principal=Math.max(0,l.payment-interest);$("loanInterest").textContent=money(interest);$("loanPrincipal").textContent=money(principal);$("loanNext").textContent=money(Math.max(0,l.balance-principal))}
 function project(age){let a=state.cash+totalInvest("本人")+totalInvest("夫")+state.insurance.reduce((s,x)=>s+(+x.value||0),0),cur=state.loan.age;for(let y=cur;y<age;y++)a=a*(1+state.future.rate/100)+(state.future.saving+state.future.invest)*12;return a}
-function renderFuture(){const f=state.future;$("futureSaving").value=f.saving;$("futureInvest").value=f.invest;$("futureRate").value=f.rate;$("retireAge").value=f.retireAge;$("future65").textContent=money(project(65));$("future90").textContent=money(project(90))}
-function renderAll(){renderHome();loadBook();renderInvest();renderEducation();renderLoan();renderFuture()}
+function renderFuture(){const f=state.future;$("futureSaving").value=f.saving;$("futureInvest").value=f.invest;$("futureRate").value=f.rate;$("retireAge").value=f.retireAge;$("annualSpend").value=f.annualSpend;$("future65").textContent=money(project(65));$("future90").textContent=money(project(90))}
+function renderAll(){renderHome();loadBook();renderInvest();renderDividends();renderNisa();renderEducation();renderLoan();renderFuture();renderFire();document.body.classList.toggle("dark",!!state.dark);$("themeToggle").textContent=state.dark?"☀️":"🌙"}
 $("bookMonth").innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===new Date().getMonth()?"selected":""}>${i+1}月</option>`).join("");
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));$(b.dataset.screen).classList.add("active");b.classList.add("active")});
 document.querySelectorAll("[data-owner]").forEach(b=>b.onclick=()=>{owner=b.dataset.owner;renderInvest()});
 $("globalYear").onchange=e=>{state.selectedYear=+e.target.value;save();renderAll()};$("bookYear").onchange=e=>{state.selectedYear=+e.target.value;save();renderAll()};
 $("addYear").onclick=()=>{state.selectedYear=Math.max(...years())+1;ensureYear(state.selectedYear);save();renderAll()};
-$("saveBase").onclick=()=>{state.cash=+$("baseCash").value||0;state.loan.balance=+$("baseLoan").value||0;save();renderAll();alert("保存しました")};
+$("saveBase").onclick=()=>{state.cash=+$("baseCash").value||0;state.loan.balance=+$("baseLoan").value||0;state.homeValue=+$("homeValue").value||0;state.vehicleValue=+$("vehicleValue").value||0;state.otherDebt=+$("otherDebt").value||0;state.lastNetWorth=+$("lastNetWorth").value||0;save();renderAll();alert("保存しました")};
 $("bookMonth").onchange=loadBook;$("saveMonth").onclick=saveMonth;$("addReceipt").onclick=addReceipt;
-$("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return;state.assets.push({owner,name:n,value:+$("newAssetValue").value||0,pl:0});$("newAssetName").value="";$("newAssetValue").value="";save();renderAll()};$("saveInvest").onclick=saveInvest;
+$("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return;state.assets.push({owner,name:n,value:+$("newAssetValue").value||0,pl:0,dividend:0,dividendMonths:"6・12"});$("newAssetName").value="";$("newAssetValue").value="";save();renderAll()};$("saveInvest").onclick=saveInvest;
 $("addInsurance").onclick=()=>{const n=$("newInsName").value.trim();if(!n)return;state.insurance.push({name:n,value:+$("newInsValue").value||0});$("newInsName").value="";$("newInsValue").value="";save();renderAll()};$("saveEducation").onclick=saveEducation;
 $("saveLoan").onclick=()=>{state.loan={balance:+$("loanBalance").value||0,rate:+$("loanRate").value||0,payment:+$("loanPayment").value||0,age:+$("loanAge").value||40};save();renderAll();alert("保存しました")};
-$("saveFuture").onclick=()=>{state.future={saving:+$("futureSaving").value||0,invest:+$("futureInvest").value||0,rate:+$("futureRate").value||0,retireAge:+$("retireAge").value||65};save();renderAll()};
+$("saveFuture").onclick=()=>{state.future={saving:+$("futureSaving").value||0,invest:+$("futureInvest").value||0,rate:+$("futureRate").value||0,retireAge:+$("retireAge").value||65,annualSpend:+$("annualSpend").value||300};save();renderAll()};
 $("exportData").onclick=()=>{const blob=new Blob([JSON.stringify({version:"4.1",state},null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`サカイ家MONEY_${new Date().toISOString().slice(0,10)}.json`;a.click()};
 $("importData").onclick=()=>$("importFile").click();$("importFile").onchange=e=>{const r=new FileReader();r.onload=()=>{try{const p=JSON.parse(r.result);state={...clone(defaults),...(p.state||p)};save();renderAll();alert("復元しました")}catch{alert("読み込めませんでした")}};r.readAsText(e.target.files[0])};
+
+$("themeToggle").onclick=()=>{state.dark=!state.dark;save();renderAll()};
+$("addNisa").onclick=()=>{const n=$("newNisaName").value.trim();if(!n)return;state.nisa.push({name:n,monthly:+$("newNisaMonthly").value||0});$("newNisaName").value="";$("newNisaMonthly").value="";save();renderNisa()};
+$("saveNisa").onclick=()=>{document.querySelectorAll("[data-nisa]").forEach(el=>{const x=state.nisa[+el.dataset.nisa],f=el.dataset.field;x[f]=f==="name"?el.value:(+el.value||0)});save();renderAll();alert("NISA積立を保存しました")};
+
 renderAll();
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js");
 })();
