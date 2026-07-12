@@ -2,6 +2,102 @@
 "use strict";
 const $=id=>document.getElementById(id);
 const KEY="sakaiMoneyPro50";
+
+const AUTH_KEY="sakaiMoneyPro51Auth";
+const SESSION_KEY="sakaiMoneyPro51Unlocked";
+const AUTO_LOCK_MS=10*60*1000;
+let autoLockTimer=null;
+let setupMode=false;
+
+function bytesToBase64(bytes){
+  let s="";bytes.forEach(b=>s+=String.fromCharCode(b));
+  return btoa(s);
+}
+function base64ToBytes(s){
+  return Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+}
+async function hashPassword(password,salt){
+  const data=new TextEncoder().encode(password);
+  const key=await crypto.subtle.importKey("raw",data,{name:"PBKDF2"},false,["deriveBits"]);
+  const bits=await crypto.subtle.deriveBits(
+    {name:"PBKDF2",salt,iterations:150000,hash:"SHA-256"},
+    key,256
+  );
+  return bytesToBase64(new Uint8Array(bits));
+}
+function getAuth(){
+  try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")}catch(e){return null}
+}
+function showLock(isSetup=false){
+  setupMode=isSetup;
+  $("lockScreen").classList.remove("hidden");
+  $("lockPassword").value="";
+  $("lockPasswordConfirm").value="";
+  $("lockError").textContent="";
+  $("lockPasswordConfirm").style.display=isSetup?"block":"none";
+  $("lockDescription").textContent=isSetup
+    ?"最初に、この端末で使うパスワードを設定してください。"
+    :"パスワードを入力してください。";
+  $("unlockButton").textContent=isSetup?"パスワードを設定":"開く";
+  setTimeout(()=>$("lockPassword").focus(),100);
+}
+function hideLock(){
+  $("lockScreen").classList.add("hidden");
+  sessionStorage.setItem(SESSION_KEY,"1");
+  resetAutoLock();
+}
+async function handleUnlock(){
+  const pass=$("lockPassword").value;
+  if(setupMode){
+    const confirmPass=$("lockPasswordConfirm").value;
+    if(pass.length<8){
+      $("lockError").textContent="8文字以上で設定してください。";
+      return;
+    }
+    if(pass!==confirmPass){
+      $("lockError").textContent="確認用パスワードと一致しません。";
+      return;
+    }
+    const salt=crypto.getRandomValues(new Uint8Array(16));
+    const hash=await hashPassword(pass,salt);
+    localStorage.setItem(AUTH_KEY,JSON.stringify({salt:bytesToBase64(salt),hash}));
+    hideLock();
+    return;
+  }
+  const auth=getAuth();
+  if(!auth){showLock(true);return}
+  const hash=await hashPassword(pass,base64ToBytes(auth.salt));
+  if(hash===auth.hash)hideLock();
+  else $("lockError").textContent="パスワードが違います。";
+}
+function lockApp(){
+  sessionStorage.removeItem(SESSION_KEY);
+  if(autoLockTimer)clearTimeout(autoLockTimer);
+  showLock(false);
+}
+function resetAutoLock(){
+  if($("lockScreen") && !$("lockScreen").classList.contains("hidden"))return;
+  if(autoLockTimer)clearTimeout(autoLockTimer);
+  autoLockTimer=setTimeout(lockApp,AUTO_LOCK_MS);
+}
+async function changePassword(){
+  const current=prompt("現在のパスワードを入力してください");
+  if(current===null)return;
+  const auth=getAuth();
+  if(!auth)return showLock(true);
+  const currentHash=await hashPassword(current,base64ToBytes(auth.salt));
+  if(currentHash!==auth.hash)return alert("現在のパスワードが違います");
+  const next=prompt("新しいパスワードを8文字以上で入力してください");
+  if(next===null)return;
+  if(next.length<8)return alert("8文字以上で入力してください");
+  const confirmNext=prompt("確認のため、もう一度入力してください");
+  if(next!==confirmNext)return alert("パスワードが一致しません");
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const hash=await hashPassword(next,salt);
+  localStorage.setItem(AUTH_KEY,JSON.stringify({salt:bytesToBase64(salt),hash}));
+  alert("パスワードを変更しました");
+}
+
 const nowY=new Date().getFullYear();
 const money=v=>`${Number(v||0).toLocaleString("ja-JP",{maximumFractionDigits:1})}万円`;
 const defaults={
@@ -166,13 +262,28 @@ $("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return;s
 $("addInsurance").onclick=()=>{const n=$("newInsName").value.trim();if(!n)return;state.insurance.push({name:n,value:+$("newInsValue").value||0});$("newInsName").value="";$("newInsValue").value="";save();renderAll()};$("saveEducation").onclick=saveEducation;
 $("saveLoan").onclick=()=>{state.loan={balance:+$("loanBalance").value||0,rate:+$("loanRate").value||0,payment:+$("loanPayment").value||0,age:+$("loanAge").value||40};save();renderAll();alert("保存しました")};
 $("saveFuture").onclick=()=>{state.future={saving:+$("futureSaving").value||0,invest:+$("futureInvest").value||0,rate:+$("futureRate").value||0,retireAge:+$("retireAge").value||65,annualSpend:+$("annualSpend").value||300};save();renderAll()};
-$("exportData").onclick=()=>{const blob=new Blob([JSON.stringify({version:"4.1",state},null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`サカイ家MONEY_${new Date().toISOString().slice(0,10)}.json`;a.click()};
+$("exportData").onclick=()=>{const blob=new Blob([JSON.stringify({version:"5.1",state},null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`サカイ家MONEY_${new Date().toISOString().slice(0,10)}.json`;a.click()};
 $("importData").onclick=()=>$("importFile").click();$("importFile").onchange=e=>{const r=new FileReader();r.onload=()=>{try{const p=JSON.parse(r.result);state={...clone(defaults),...(p.state||p)};save();renderAll();alert("復元しました")}catch{alert("読み込めませんでした")}};r.readAsText(e.target.files[0])};
 
 $("themeToggle").onclick=()=>{state.dark=!state.dark;save();renderAll()};
 $("addNisa").onclick=()=>{const n=$("newNisaName").value.trim();if(!n)return;state.nisa.push({name:n,monthly:+$("newNisaMonthly").value||0});$("newNisaName").value="";$("newNisaMonthly").value="";save();renderNisa()};
 $("saveNisa").onclick=()=>{document.querySelectorAll("[data-nisa]").forEach(el=>{const x=state.nisa[+el.dataset.nisa],f=el.dataset.field;x[f]=f==="name"?el.value:(+el.value||0)});save();renderAll();alert("NISA積立を保存しました")};
 
+
+$("unlockButton").onclick=handleUnlock;
+$("lockPassword").addEventListener("keydown",e=>{if(e.key==="Enter")handleUnlock()});
+$("lockPasswordConfirm").addEventListener("keydown",e=>{if(e.key==="Enter")handleUnlock()});
+$("lockNowButton").onclick=lockApp;
+$("manualLockButton").onclick=lockApp;
+$("changePasswordButton").onclick=changePassword;
+["click","touchstart","keydown","scroll"].forEach(evt=>document.addEventListener(evt,resetAutoLock,{passive:true}));
+
 renderAll();
+
+const initialAuth=getAuth();
+if(!initialAuth)showLock(true);
+else if(sessionStorage.getItem(SESSION_KEY)!=="1")showLock(false);
+else resetAutoLock();
+
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js");
 })();

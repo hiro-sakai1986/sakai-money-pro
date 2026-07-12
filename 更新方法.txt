@@ -1,13 +1,14 @@
-サカイ家 MONEY Pro 5.0 更新方法
+サカイ家 MONEY Pro 5.1 更新方法
 
 1. ZIPをiPhoneの「ファイル」で展開
 2. https://github.com/hiro-sakai1986/sakai-money-pro/upload/main を開く
-3. 展開したフォルダ内のファイルをすべて選択
+3. 展開した中のファイルをすべて選択
 4. Commit changes
-5. 1〜2分後に公開URLを更新
+5. 1〜2分後に公開URLを再読み込み
 
-公開URL:
-https://hiro-sakai1986.github.io/sakai-money-pro/
+初回起動時に8文字以上のパスワードを設定します。
+10分間操作がない場合は自動でロックします。
 
-4.1の保存データは自動的に引き継ぐ設計です。
-更新前にバックアップを書き出しておくとより安心です。
+重要:
+GitHub PagesのHTMLやJavaScriptは公開されます。
+家計データとパスワードのハッシュはSafari内に保存され、GitHubにはアップロードされません。

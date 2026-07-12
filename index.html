@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f5f3f5">
-<title>サカイ家 MONEY Pro 5.0</title>
+<title>サカイ家 MONEY Pro 5.1</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -44,10 +44,34 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
 .nisa-row{display:grid;grid-template-columns:1.2fr .7fr .7fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:.5px solid var(--line)}
 @media(max-width:430px){.dividend-calendar{grid-template-columns:repeat(2,1fr)}.fire-card{grid-template-columns:1fr}.nisa-row{grid-template-columns:1fr}}
 
+
+.lock-screen{position:fixed;inset:0;z-index:999;background:linear-gradient(180deg,#f7f3f5,#f5f5f7);display:flex;align-items:center;justify-content:center;padding:22px}
+.lock-screen.hidden{display:none}
+.lock-card{width:min(390px,100%);background:#fff;border-radius:28px;padding:26px 22px;box-shadow:0 18px 60px rgba(0,0,0,.14);text-align:center;color:#1d1d1f}
+.lock-icon{width:72px;height:72px;border-radius:22px;background:#eadde1;display:grid;place-items:center;font-size:34px;margin:0 auto 15px}
+.lock-title{font-size:24px;font-weight:850;margin:0}.lock-text{font-size:13px;color:#6e6e73;line-height:1.5;margin:8px 0 16px}
+.lock-card input{background:#f2f2f7;color:#1d1d1f;text-align:center;letter-spacing:2px}
+.lock-error{color:#c34138;font-size:12px;min-height:18px;margin-top:8px}
+.security-card{background:var(--card);border-radius:23px;padding:16px;margin-top:12px}
+.security-note{font-size:12px;color:var(--muted);line-height:1.5}
+
 </style>
 </head>
 <body>
-<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.0</h1><div class="sub">完成版｜資産配分・配当・NISA・FIRE・ダークモード</div></div><div class="top-actions"><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
+
+<div id="lockScreen" class="lock-screen hidden">
+  <div class="lock-card">
+    <div class="lock-icon">🔐</div>
+    <h2 class="lock-title">サカイ家 MONEY</h2>
+    <p id="lockDescription" class="lock-text">パスワードを入力してください。</p>
+    <input id="lockPassword" type="password" inputmode="text" autocomplete="current-password" placeholder="パスワード">
+    <input id="lockPasswordConfirm" type="password" autocomplete="new-password" placeholder="確認用パスワード" style="display:none;margin-top:9px">
+    <button id="unlockButton" class="primary">開く</button>
+    <div id="lockError" class="lock-error"></div>
+  </div>
+</div>
+
+<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.1</h1><div class="sub">セキュリティ版｜パスワード・自動ロック・ログアウト</div></div><div class="top-actions"><button class="icon-btn" id="lockNowButton" title="ロック">🔒</button><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
 <main>
 <section id="home" class="screen active">
 <div class="hero">ダッシュボード</div>
@@ -135,6 +159,14 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
 <div class="fire-box"><span>65歳退職</span><strong id="fire65">判定中</strong></div>
 </div>
 <div class="card" style="margin-top:10px"><div class="row"><span>FIRE目標資産</span><strong id="fireTarget">0万円</strong></div><div class="row"><span>目標まで</span><strong id="fireGap">0万円</strong></div></div>
+
+<div class="section">セキュリティ</div>
+<div class="security-card">
+  <div class="row"><span>パスワード変更</span><button class="secondary" id="changePasswordButton">変更</button></div>
+  <div class="row"><span>今すぐロック</span><button class="secondary" id="manualLockButton">ロック</button></div>
+  <div class="security-note">10分間操作がない場合は自動でロックします。パスワードはこの端末のSafari内にのみ保存されます。</div>
+</div>
+
 <div class="section">データ管理</div><div class="card"><div class="grid2"><button class="secondary" id="exportData">バックアップ</button><button class="secondary" id="importData">復元</button></div><input id="importFile" type="file" accept=".json" hidden></div>
 </section>
 </main>
