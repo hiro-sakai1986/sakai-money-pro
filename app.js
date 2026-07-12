@@ -2,12 +2,15 @@
 "use strict";
 const $=id=>document.getElementById(id);
 const KEY="sakaiMoneyPro50";
+const ENCRYPTED_KEY="sakaiMoneyPro52EncryptedState";
 
 const AUTH_KEY="sakaiMoneyPro51Auth";
 const SESSION_KEY="sakaiMoneyPro51Unlocked";
 const AUTO_LOCK_MS=10*60*1000;
 let autoLockTimer=null;
 let setupMode=false;
+let activeEncryptionKey=null;
+let saveQueue=Promise.resolve();
 
 function bytesToBase64(bytes){
   let s="";bytes.forEach(b=>s+=String.fromCharCode(b));
@@ -25,6 +28,68 @@ async function hashPassword(password,salt){
   );
   return bytesToBase64(new Uint8Array(bits));
 }
+
+async function deriveEncryptionKey(password,salt){
+  const material=await crypto.subtle.importKey(
+    "raw",new TextEncoder().encode(password),
+    {name:"PBKDF2"},false,["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},
+    material,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]
+  );
+}
+async function encryptObject(value,key){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const plain=new TextEncoder().encode(JSON.stringify(value));
+  const encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,plain);
+  return {iv:bytesToBase64(iv),ciphertext:bytesToBase64(new Uint8Array(encrypted))};
+}
+async function decryptObject(payload,key){
+  const plain=await crypto.subtle.decrypt(
+    {name:"AES-GCM",iv:base64ToBytes(payload.iv)},
+    key,base64ToBytes(payload.ciphertext)
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+function loadPlaintextForMigration(){
+  try{
+    const current=JSON.parse(localStorage.getItem(KEY)||"null");
+    if(current)return {...clone(defaults),...current};
+    for(const k of ["sakaiMoneyPro41","sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]){
+      const old=JSON.parse(localStorage.getItem(k)||"null");
+      if(old){
+        const migrated={...clone(defaults),...old};
+        if(old.months)migrated.yearData={[nowY]:old.months};
+        return migrated;
+      }
+    }
+  }catch(e){}
+  return clone(defaults);
+}
+async function loadEncryptedState(key){
+  const raw=localStorage.getItem(ENCRYPTED_KEY);
+  if(!raw)return null;
+  return decryptObject(JSON.parse(raw),key);
+}
+async function saveEncryptedState(){
+  if(!activeEncryptionKey)return;
+  const payload=await encryptObject(state,activeEncryptionKey);
+  localStorage.setItem(ENCRYPTED_KEY,JSON.stringify(payload));
+}
+function queueEncryptedSave(){
+  if(!activeEncryptionKey)return Promise.resolve();
+  saveQueue=saveQueue.then(saveEncryptedState).catch(err=>{
+    console.error(err);
+    alert("暗号化保存に失敗しました。");
+  });
+  return saveQueue;
+}
+function removePlaintextCopies(){
+  [KEY,"sakaiMoneyPro41","sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]
+    .forEach(k=>localStorage.removeItem(k));
+}
+
 function getAuth(){
   try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")}catch(e){return null}
 }
@@ -48,30 +113,71 @@ function hideLock(){
 }
 async function handleUnlock(){
   const pass=$("lockPassword").value;
-  if(setupMode){
-    const confirmPass=$("lockPasswordConfirm").value;
-    if(pass.length<8){
-      $("lockError").textContent="8文字以上で設定してください。";
+  try{
+    if(setupMode){
+      const confirmPass=$("lockPasswordConfirm").value;
+      if(pass.length<8){
+        $("lockError").textContent="8文字以上で設定してください。";
+        return;
+      }
+      if(pass!==confirmPass){
+        $("lockError").textContent="確認用パスワードと一致しません。";
+        return;
+      }
+      const authSalt=crypto.getRandomValues(new Uint8Array(16));
+      const encSalt=crypto.getRandomValues(new Uint8Array(16));
+      const hash=await hashPassword(pass,authSalt);
+      activeEncryptionKey=await deriveEncryptionKey(pass,encSalt);
+      state=loadPlaintextForMigration();
+      await saveEncryptedState();
+      removePlaintextCopies();
+      localStorage.setItem(AUTH_KEY,JSON.stringify({
+        salt:bytesToBase64(authSalt),
+        encSalt:bytesToBase64(encSalt),
+        hash
+      }));
+      renderAll();
+      hideLock();
       return;
     }
-    if(pass!==confirmPass){
-      $("lockError").textContent="確認用パスワードと一致しません。";
+
+    const auth=getAuth();
+    if(!auth){showLock(true);return}
+    const hash=await hashPassword(pass,base64ToBytes(auth.salt));
+    if(hash!==auth.hash){
+      $("lockError").textContent="パスワードが違います。";
       return;
     }
-    const salt=crypto.getRandomValues(new Uint8Array(16));
-    const hash=await hashPassword(pass,salt);
-    localStorage.setItem(AUTH_KEY,JSON.stringify({salt:bytesToBase64(salt),hash}));
+
+    let encSalt=auth.encSalt?base64ToBytes(auth.encSalt):crypto.getRandomValues(new Uint8Array(16));
+    activeEncryptionKey=await deriveEncryptionKey(pass,encSalt);
+
+    let decrypted=null;
+    try{decrypted=await loadEncryptedState(activeEncryptionKey)}catch(e){
+      $("lockError").textContent="暗号化データを開けません。パスワードまたはデータが違います。";
+      activeEncryptionKey=null;
+      return;
+    }
+    state=decrypted?{...clone(defaults),...decrypted}:loadPlaintextForMigration();
+
+    if(!auth.encSalt){
+      auth.encSalt=bytesToBase64(encSalt);
+      localStorage.setItem(AUTH_KEY,JSON.stringify(auth));
+    }
+    await saveEncryptedState();
+    removePlaintextCopies();
+    renderAll();
     hideLock();
-    return;
+  }catch(e){
+    console.error(e);
+    $("lockError").textContent="処理に失敗しました。もう一度試してください。";
   }
-  const auth=getAuth();
-  if(!auth){showLock(true);return}
-  const hash=await hashPassword(pass,base64ToBytes(auth.salt));
-  if(hash===auth.hash)hideLock();
-  else $("lockError").textContent="パスワードが違います。";
 }
-function lockApp(){
+async function lockApp(){
+  await queueEncryptedSave();
   sessionStorage.removeItem(SESSION_KEY);
+  activeEncryptionKey=null;
+  state=clone(defaults);
   if(autoLockTimer)clearTimeout(autoLockTimer);
   showLock(false);
 }
@@ -87,15 +193,31 @@ async function changePassword(){
   if(!auth)return showLock(true);
   const currentHash=await hashPassword(current,base64ToBytes(auth.salt));
   if(currentHash!==auth.hash)return alert("現在のパスワードが違います");
+
   const next=prompt("新しいパスワードを8文字以上で入力してください");
   if(next===null)return;
   if(next.length<8)return alert("8文字以上で入力してください");
   const confirmNext=prompt("確認のため、もう一度入力してください");
   if(next!==confirmNext)return alert("パスワードが一致しません");
-  const salt=crypto.getRandomValues(new Uint8Array(16));
-  const hash=await hashPassword(next,salt);
-  localStorage.setItem(AUTH_KEY,JSON.stringify({salt:bytesToBase64(salt),hash}));
-  alert("パスワードを変更しました");
+
+  try{
+    const authSalt=crypto.getRandomValues(new Uint8Array(16));
+    const encSalt=crypto.getRandomValues(new Uint8Array(16));
+    const nextHash=await hashPassword(next,authSalt);
+    const nextKey=await deriveEncryptionKey(next,encSalt);
+    const payload=await encryptObject(state,nextKey);
+    localStorage.setItem(ENCRYPTED_KEY,JSON.stringify(payload));
+    localStorage.setItem(AUTH_KEY,JSON.stringify({
+      salt:bytesToBase64(authSalt),
+      encSalt:bytesToBase64(encSalt),
+      hash:nextHash
+    }));
+    activeEncryptionKey=nextKey;
+    alert("パスワードを変更し、データを新しい鍵で再暗号化しました");
+  }catch(e){
+    console.error(e);
+    alert("パスワード変更に失敗しました");
+  }
 }
 
 const nowY=new Date().getFullYear();
@@ -116,23 +238,9 @@ const defaults={
  future:{saving:2,invest:7,rate:4,retireAge:65,annualSpend:300},nisa:[{name:"オルカン",monthly:2.5},{name:"S&P500",monthly:1.5}],dividends:{}
 };
 const clone=x=>JSON.parse(JSON.stringify(x));
-function load(){
- try{
-  const s=JSON.parse(localStorage.getItem(KEY)||"null");
-  if(s)return {...clone(defaults),...s};
-  for(const k of ["sakaiMoneyPro41","sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]){
-   const old=JSON.parse(localStorage.getItem(k)||"null");
-   if(old){
-    const n={...clone(defaults),...old};
-    if(old.months)n.yearData={[nowY]:old.months};
-    return n;
-   }
-  }
- }catch(e){}
- return clone(defaults);
-}
-let state=load(),owner="本人";
-function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function load(){return clone(defaults)}
+let state=clone(defaults),owner="本人";
+function save(){queueEncryptedSave()}
 function ensureYear(y){state.yearData=state.yearData||{};state.yearData[y]=state.yearData[y]||{};return state.yearData[y]}
 function years(){const a=Object.keys(state.yearData||{}).map(Number);if(!a.includes(nowY))a.push(nowY);if(!a.includes(+state.selectedYear))a.push(+state.selectedYear);return a.sort((a,b)=>a-b)}
 function fillYears(){["globalYear","bookYear"].forEach(id=>{$(id).innerHTML=years().map(y=>`<option value="${y}" ${y===+state.selectedYear?"selected":""}>${y}年</option>`).join("")})}
@@ -262,8 +370,51 @@ $("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return;s
 $("addInsurance").onclick=()=>{const n=$("newInsName").value.trim();if(!n)return;state.insurance.push({name:n,value:+$("newInsValue").value||0});$("newInsName").value="";$("newInsValue").value="";save();renderAll()};$("saveEducation").onclick=saveEducation;
 $("saveLoan").onclick=()=>{state.loan={balance:+$("loanBalance").value||0,rate:+$("loanRate").value||0,payment:+$("loanPayment").value||0,age:+$("loanAge").value||40};save();renderAll();alert("保存しました")};
 $("saveFuture").onclick=()=>{state.future={saving:+$("futureSaving").value||0,invest:+$("futureInvest").value||0,rate:+$("futureRate").value||0,retireAge:+$("retireAge").value||65,annualSpend:+$("annualSpend").value||300};save();renderAll()};
-$("exportData").onclick=()=>{const blob=new Blob([JSON.stringify({version:"5.1",state},null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`サカイ家MONEY_${new Date().toISOString().slice(0,10)}.json`;a.click()};
-$("importData").onclick=()=>$("importFile").click();$("importFile").onchange=e=>{const r=new FileReader();r.onload=()=>{try{const p=JSON.parse(r.result);state={...clone(defaults),...(p.state||p)};save();renderAll();alert("復元しました")}catch{alert("読み込めませんでした")}};r.readAsText(e.target.files[0])};
+$("exportData").onclick=async()=>{
+  if(!activeEncryptionKey)return alert("ロックを解除してください");
+  await queueEncryptedSave();
+  const auth=getAuth();
+  const encrypted=JSON.parse(localStorage.getItem(ENCRYPTED_KEY)||"null");
+  const backup={
+    version:"5.2",
+    encrypted:true,
+    exportedAt:new Date().toISOString(),
+    encSalt:auth.encSalt,
+    data:encrypted
+  };
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=`サカイ家MONEY_暗号化バックアップ_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+$("importData").onclick=()=>$("importFile").click();
+$("importFile").onchange=e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  const r=new FileReader();
+  r.onload=async()=>{
+    try{
+      const backup=JSON.parse(r.result);
+      if(!backup.encrypted||!backup.encSalt||!backup.data)throw new Error("not encrypted");
+      const password=prompt("バックアップ作成時のパスワードを入力してください");
+      if(password===null)return;
+      const backupKey=await deriveEncryptionKey(password,base64ToBytes(backup.encSalt));
+      const restored=await decryptObject(backup.data,backupKey);
+      state={...clone(defaults),...restored};
+      await saveEncryptedState();
+      renderAll();
+      alert("暗号化バックアップを復元しました");
+    }catch(err){
+      console.error(err);
+      alert("復元できませんでした。パスワードまたはバックアップファイルを確認してください。");
+    }finally{
+      e.target.value="";
+    }
+  };
+  r.readAsText(file);
+};
 
 $("themeToggle").onclick=()=>{state.dark=!state.dark;save();renderAll()};
 $("addNisa").onclick=()=>{const n=$("newNisaName").value.trim();if(!n)return;state.nisa.push({name:n,monthly:+$("newNisaMonthly").value||0});$("newNisaName").value="";$("newNisaMonthly").value="";save();renderNisa()};
@@ -277,13 +428,15 @@ $("lockNowButton").onclick=lockApp;
 $("manualLockButton").onclick=lockApp;
 $("changePasswordButton").onclick=changePassword;
 ["click","touchstart","keydown","scroll"].forEach(evt=>document.addEventListener(evt,resetAutoLock,{passive:true}));
-
-renderAll();
+document.addEventListener("visibilitychange",()=>{if(document.hidden)queueEncryptedSave()});
+window.addEventListener("pagehide",()=>queueEncryptedSave());
 
 const initialAuth=getAuth();
-if(!initialAuth)showLock(true);
-else if(sessionStorage.getItem(SESSION_KEY)!=="1")showLock(false);
-else resetAutoLock();
+if(!initialAuth){
+  showLock(true);
+}else{
+  showLock(false);
+}
 
 if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js");
 })();

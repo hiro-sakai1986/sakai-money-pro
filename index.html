@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f5f3f5">
-<title>サカイ家 MONEY Pro 5.1</title>
+<title>サカイ家 MONEY Pro 5.2</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -63,7 +63,7 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
   <div class="lock-card">
     <div class="lock-icon">🔐</div>
     <h2 class="lock-title">サカイ家 MONEY</h2>
-    <p id="lockDescription" class="lock-text">パスワードを入力してください。</p>
+    <p id="lockDescription" class="lock-text">パスワードを入力してください。</p><p class="lock-text" style="font-size:11px">パスワードを忘れると暗号化データを復元できません。</p>
     <input id="lockPassword" type="password" inputmode="text" autocomplete="current-password" placeholder="パスワード">
     <input id="lockPasswordConfirm" type="password" autocomplete="new-password" placeholder="確認用パスワード" style="display:none;margin-top:9px">
     <button id="unlockButton" class="primary">開く</button>
@@ -71,7 +71,7 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
   </div>
 </div>
 
-<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.1</h1><div class="sub">セキュリティ版｜パスワード・自動ロック・ログアウト</div></div><div class="top-actions"><button class="icon-btn" id="lockNowButton" title="ロック">🔒</button><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
+<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.2</h1><div class="sub">暗号化版｜入力データ・バックアップをAES暗号化</div></div><div class="top-actions"><button class="icon-btn" id="lockNowButton" title="ロック">🔒</button><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
 <main>
 <section id="home" class="screen active">
 <div class="hero">ダッシュボード</div>
@@ -164,10 +164,10 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
 <div class="security-card">
   <div class="row"><span>パスワード変更</span><button class="secondary" id="changePasswordButton">変更</button></div>
   <div class="row"><span>今すぐロック</span><button class="secondary" id="manualLockButton">ロック</button></div>
-  <div class="security-note">10分間操作がない場合は自動でロックします。パスワードはこの端末のSafari内にのみ保存されます。</div>
+  <div class="security-note">10分間操作がない場合は自動でロックします。家計データはAES-GCMで暗号化してSafari内に保存します。パスワードを忘れると復元できません。</div>
 </div>
 
-<div class="section">データ管理</div><div class="card"><div class="grid2"><button class="secondary" id="exportData">バックアップ</button><button class="secondary" id="importData">復元</button></div><input id="importFile" type="file" accept=".json" hidden></div>
+<div class="section">データ管理</div><div class="card"><div class="grid2"><button class="secondary" id="exportData">暗号化バックアップ</button><button class="secondary" id="importData">復元</button></div><input id="importFile" type="file" accept=".json" hidden></div>
 </section>
 </main>
 <nav>
