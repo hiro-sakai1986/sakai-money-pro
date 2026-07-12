@@ -1,21 +1,21 @@
 {
-  "name": "サカイ家 MONEY Pro GitHub版",
+  "name": "サカイ家 MONEY Pro 4.0",
   "short_name": "サカイ家",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f5f7",
-  "theme_color": "#f5f5f7",
+  "background_color": "#f5f3f5",
+  "theme_color": "#f5f3f5",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "./icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icon-512.png",
+      "src": "./icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
-  ],
-  "scope": "./"
+  ]
 }
