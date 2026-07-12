@@ -1,3 +1,3 @@
-# サカイ家 MONEY Pro 4.0
+# サカイ家 MONEY Pro 4.1
 
-GitHub Pages 公開版です。
+GitHub Pages用の安定修正版です。

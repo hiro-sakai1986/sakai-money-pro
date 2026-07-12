@@ -1,1 +1,7 @@
-GitHubの sakai-money-pro リポジトリへ、このZIPを展開した中身を上書きアップロードし、Commit changesを押してください。公開URLは変わりません。更新前にアプリの「バックアップを書き出す」を押してください。
+GitHub更新手順
+1. ZIPをファイルアプリで展開
+2. https://github.com/hiro-sakai1986/sakai-money-pro/upload/main を開く
+3. 展開した中のファイルを全部選択
+4. Commit changes
+5. 1分ほど待って公開URLを更新
+公開URL: https://hiro-sakai1986.github.io/sakai-money-pro/
