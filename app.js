@@ -129,6 +129,7 @@ async function handleUnlock(){
       const hash=await hashPassword(pass,authSalt);
       activeEncryptionKey=await deriveEncryptionKey(pass,encSalt);
       state=loadPlaintextForMigration();
+      ensureV50();
       await saveEncryptedState();
       removePlaintextCopies();
       localStorage.setItem(AUTH_KEY,JSON.stringify({
@@ -159,6 +160,7 @@ async function handleUnlock(){
       return;
     }
     state=decrypted?{...clone(defaults),...decrypted}:loadPlaintextForMigration();
+    ensureV50();
 
     if(!auth.encSalt){
       auth.encSalt=bytesToBase64(encSalt);
@@ -235,7 +237,7 @@ const defaults={
  insurance:[{name:"学資保険",value:0},{name:"個人年金",value:0}],
  children:[{name:"長女",saved:0,target:500,monthly:1},{name:"次女",saved:0,target:500,monthly:1},{name:"三女",saved:0,target:500,monthly:1}],
  loan:{balance:4400,rate:1.05,payment:10.8,age:40},
- future:{saving:2,invest:7,rate:4,retireAge:65,annualSpend:300},nisa:[{name:"オルカン",monthly:2.5},{name:"S&P500",monthly:1.5}],dividends:{}
+ future:{saving:2,invest:7,rate:4,retireAge:65,annualSpend:300},nisa:[{owner:"本人",name:"オルカン",monthly:2.5,startDate:""},{owner:"本人",name:"S&P500",monthly:1.5,startDate:""}],dividends:{}
 };
 const clone=x=>JSON.parse(JSON.stringify(x));
 function load(){return clone(defaults)}
@@ -251,7 +253,23 @@ function monthTotal(m,y=state.selectedYear){
  const investment=+x.investment||0,saving=+x.saving||0;
  return {income,expense,investment,saving,net:income-expense-investment-saving};
 }
-function totalInvest(o){return state.assets.filter(x=>x.owner===o).reduce((a,x)=>a+(+x.value||0),0)}
+function assetValue(x){
+ const q=+x.quantity||0,p=+x.currentPrice||0;
+ return q>0&&p>=0?q*p/10000:(+x.value||0);
+}
+function assetProfitLoss(x){
+ const q=+x.quantity||0,buy=+x.acquisitionPrice||0,now=+x.currentPrice||0;
+ return q>0&&buy>=0&&now>=0?q*(now-buy)/10000:(+x.pl||0);
+}
+function totalInvest(o){return state.assets.filter(x=>x.owner===o).reduce((a,x)=>a+assetValue(x),0)}
+function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function today(){return new Date().toISOString().slice(0,10)}
+function monthsSince(dateText){
+ if(!dateText)return 0;
+ const d=new Date(dateText+"T00:00:00"),n=new Date();
+ if(Number.isNaN(d.getTime())||d>n)return 0;
+ return (n.getFullYear()-d.getFullYear())*12+n.getMonth()-d.getMonth()+1;
+}
 function drawBars(){
  const c=$("homeChart"),ctx=c.getContext("2d"),w=c.width,h=c.height,rows=Array.from({length:12},(_,i)=>monthTotal(i+1));
  ctx.clearRect(0,0,w,h);const keys=["income","expense","investment","saving"],colors=["#5b7fa3","#c96b6b","#956775","#c9ab6d"];
@@ -267,7 +285,16 @@ function ensureV50(){
  if(state.lastNetWorth===undefined)state.lastNetWorth=0;
  if(state.dark===undefined)state.dark=false;
  if(!Array.isArray(state.nisa))state.nisa=[];
- state.assets.forEach(x=>{if(x.dividend===undefined)x.dividend=0;if(x.dividendMonths===undefined)x.dividendMonths="6・12"});
+ state.nisa.forEach(x=>{if(!x.owner)x.owner="本人";if(x.startDate===undefined)x.startDate=""});
+ state.assets.forEach(x=>{
+  if(!x.owner)x.owner="本人";
+  if(x.dividend===undefined)x.dividend=0;
+  if(x.dividendMonths===undefined)x.dividendMonths="6・12";
+  if(x.inputDate===undefined)x.inputDate="";
+  if(x.quantity===undefined)x.quantity=0;
+  if(x.acquisitionPrice===undefined)x.acquisitionPrice=0;
+  if(x.currentPrice===undefined)x.currentPrice=0;
+ });
  if(!state.future.annualSpend)state.future.annualSpend=300;
 }
 ensureV50();
@@ -300,8 +327,9 @@ function renderDividends(){
  $("annualDividend").textContent=`${Math.round(months.reduce((a,x)=>a+x.v,0)).toLocaleString()}円`;
 }
 function renderNisa(){
- $("nisaList").innerHTML=state.nisa.length?state.nisa.map((x,i)=>`<div class="nisa-row"><input data-nisa="${i}" data-field="name" value="${x.name}"><input data-nisa="${i}" data-field="monthly" type="number" step=".1" value="${x.monthly}"><span>万円/月</span><button class="mini" data-del-nisa="${i}">削除</button></div>`).join(""):'<div class="notice">NISA積立は未登録です。</div>';
- document.querySelectorAll("[data-del-nisa]").forEach(b=>b.onclick=()=>{state.nisa.splice(+b.dataset.delNisa,1);save();renderNisa()});
+ const rows=state.nisa.filter(x=>x.owner===owner);
+ $("nisaList").innerHTML=rows.length?rows.map(x=>{const i=state.nisa.indexOf(x),months=monthsSince(x.startDate),paid=(+x.monthly||0)*months;return `<div class="nisa-row"><input data-nisa="${i}" data-field="name" value="${escapeHtml(x.name)}" aria-label="商品名"><input data-nisa="${i}" data-field="monthly" type="number" step=".1" value="${+x.monthly||0}" aria-label="月積立"><input data-nisa="${i}" data-field="startDate" type="date" value="${escapeHtml(x.startDate||"")}" aria-label="購入開始日"><span class="calc-value">${months}か月<br>${money(paid)}</span><button class="mini" data-del-nisa="${i}">削除</button></div>`}).join(""):'<div class="notice">'+owner+'の積立は未登録です。</div>';
+ document.querySelectorAll("[data-del-nisa]").forEach(b=>b.onclick=()=>{state.nisa.splice(+b.dataset.delNisa,1);save();renderAll()});
 }
 function fireProjection(retireAge){
  const current=state.loan.age||40;
@@ -346,10 +374,11 @@ function renderReceipts(){const x=ensureYear(state.selectedYear)[+$("bookMonth")
 function renderYear(){let a={income:0,expense:0,investment:0,saving:0};for(let m=1;m<=12;m++){const t=monthTotal(m);Object.keys(a).forEach(k=>a[k]+=t[k])}$("yearIncome").textContent=money(a.income);$("yearExpense").textContent=money(a.expense);$("yearInvest").textContent=money(a.investment);$("yearSaving").textContent=money(a.saving)}
 function renderInvest(){
  const self=totalInvest("本人"),hus=totalInvest("夫");$("selfTotal").textContent=money(self);$("husbandTotal").textContent=money(hus);$("familyTotal").textContent=money(self+hus);
- const rows=state.assets.filter(x=>x.owner===owner);$("assetRows").innerHTML=rows.length?rows.map(x=>{const i=state.assets.indexOf(x);return `<tr><td><input data-asset="${i}" data-field="name" value="${x.name}"></td><td><input data-asset="${i}" data-field="value" type="number" value="${x.value}"></td><td><input data-asset="${i}" data-field="pl" type="number" value="${x.pl||0}"></td><td><input data-asset="${i}" data-field="dividend" type="number" value="${x.dividend||0}" title="年間配当円"></td><td><input data-asset="${i}" data-field="dividendMonths" value="${x.dividendMonths||'6・12'}" title="受取月"></td></tr>`}).join(""):'<tr><td colspan="5">未登録</td></tr>';
+ const rows=state.assets.filter(x=>x.owner===owner);$("assetRows").innerHTML=rows.length?rows.map(x=>{const i=state.assets.indexOf(x),v=assetValue(x),pl=assetProfitLoss(x);return `<tr><td><input class="date-input" data-asset="${i}" data-field="inputDate" type="date" value="${escapeHtml(x.inputDate||"")}"></td><td><input class="name-input" data-asset="${i}" data-field="name" value="${escapeHtml(x.name)}"></td><td><input class="number-input" data-asset="${i}" data-field="quantity" type="number" step="0.0001" value="${+x.quantity||0}"></td><td><input class="number-input" data-asset="${i}" data-field="acquisitionPrice" type="number" step="0.01" value="${+x.acquisitionPrice||0}"></td><td><input class="number-input" data-asset="${i}" data-field="currentPrice" type="number" step="0.01" value="${+x.currentPrice||0}"></td><td class="calc-value">${money(v)}</td><td class="calc-value ${pl>=0?'positive':'negative'}">${pl>=0?'+':''}${money(pl)}</td><td><input class="number-input" data-asset="${i}" data-field="dividend" type="number" value="${+x.dividend||0}" title="年間配当円"></td><td><input data-asset="${i}" data-field="dividendMonths" value="${escapeHtml(x.dividendMonths||'6・12')}" title="受取月"></td><td><button class="mini" data-del-asset="${i}">削除</button></td></tr>`}).join(""):'<tr><td colspan="10">'+owner+'の保有資産は未登録です。</td></tr>';
  document.querySelectorAll("[data-owner]").forEach(b=>b.classList.toggle("active",b.dataset.owner===owner));
+ document.querySelectorAll("[data-del-asset]").forEach(b=>b.onclick=()=>{if(confirm("この保有資産を削除しますか？")){state.assets.splice(+b.dataset.delAsset,1);save();renderAll()}});
 }
-function saveInvest(){document.querySelectorAll("[data-asset]").forEach(el=>{const x=state.assets[+el.dataset.asset],f=el.dataset.field;x[f]=(f==="name"||f==="dividendMonths")?el.value:(+el.value||0)});save();renderAll();alert("保存しました")}
+function saveInvest(){document.querySelectorAll("[data-asset]").forEach(el=>{const x=state.assets[+el.dataset.asset],f=el.dataset.field;x[f]=(f==="name"||f==="dividendMonths"||f==="inputDate")?el.value:(+el.value||0);x.value=assetValue(x);x.pl=assetProfitLoss(x)});save();renderAll();alert(owner+"の保有資産を保存しました")}
 function renderEducation(){
  $("insuranceList").innerHTML=state.insurance.map((x,i)=>`<div class="card"><div class="form"><div><label>保険名</label><input data-ins="${i}" data-field="name" value="${x.name}"></div><div><label>現在価値（万円）</label><input data-ins="${i}" data-field="value" type="number" value="${x.value}"></div></div></div>`).join("");
  $("childrenList").innerHTML=state.children.map((x,i)=>{const p=Math.min(100,(+x.saved||0)/(+x.target||1)*100);return `<div class="card"><strong>${x.name}</strong><div class="form"><div><label>準備額（万円）</label><input data-child="${i}" data-field="saved" type="number" value="${x.saved}"></div><div><label>目標額（万円）</label><input data-child="${i}" data-field="target" type="number" value="${x.target}"></div><div><label>月積立（万円）</label><input data-child="${i}" data-field="monthly" type="number" value="${x.monthly}"></div></div><div class="row"><span>達成率</span><strong>${p.toFixed(1)}%</strong></div><div class="progress"><i style="width:${p}%"></i></div></div>`}).join("");
@@ -361,12 +390,14 @@ function renderFuture(){const f=state.future;$("futureSaving").value=f.saving;$(
 function renderAll(){renderHome();loadBook();renderInvest();renderDividends();renderNisa();renderEducation();renderLoan();renderFuture();renderFire();document.body.classList.toggle("dark",!!state.dark);$("themeToggle").textContent=state.dark?"☀️":"🌙"}
 $("bookMonth").innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===new Date().getMonth()?"selected":""}>${i+1}月</option>`).join("");
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));$(b.dataset.screen).classList.add("active");b.classList.add("active")});
-document.querySelectorAll("[data-owner]").forEach(b=>b.onclick=()=>{owner=b.dataset.owner;renderInvest()});
+document.querySelectorAll("[data-owner]").forEach(b=>b.onclick=()=>{owner=b.dataset.owner;renderInvest();renderNisa()});
 $("globalYear").onchange=e=>{state.selectedYear=+e.target.value;save();renderAll()};$("bookYear").onchange=e=>{state.selectedYear=+e.target.value;save();renderAll()};
 $("addYear").onclick=()=>{state.selectedYear=Math.max(...years())+1;ensureYear(state.selectedYear);save();renderAll()};
 $("saveBase").onclick=()=>{state.cash=+$("baseCash").value||0;state.loan.balance=+$("baseLoan").value||0;state.homeValue=+$("homeValue").value||0;state.vehicleValue=+$("vehicleValue").value||0;state.otherDebt=+$("otherDebt").value||0;state.lastNetWorth=+$("lastNetWorth").value||0;save();renderAll();alert("保存しました")};
 $("bookMonth").onchange=loadBook;$("saveMonth").onclick=saveMonth;$("addReceipt").onclick=addReceipt;
-$("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return;state.assets.push({owner,name:n,value:+$("newAssetValue").value||0,pl:0,dividend:0,dividendMonths:"6・12"});$("newAssetName").value="";$("newAssetValue").value="";save();renderAll()};$("saveInvest").onclick=saveInvest;
+$("newAssetDate").value=today();
+$("newNisaStartDate").value=today();
+$("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return alert("名称を入力してください");const x={owner,name:n,inputDate:$("newAssetDate").value||today(),quantity:+$("newAssetQuantity").value||0,acquisitionPrice:+$("newAssetAcquisitionPrice").value||0,currentPrice:+$("newAssetCurrentPrice").value||0,value:0,pl:0,dividend:0,dividendMonths:"6・12"};x.value=assetValue(x);x.pl=assetProfitLoss(x);state.assets.push(x);["newAssetName","newAssetQuantity","newAssetAcquisitionPrice","newAssetCurrentPrice"].forEach(id=>$(id).value="");$("newAssetDate").value=today();save();renderAll()};$("saveInvest").onclick=saveInvest;
 $("addInsurance").onclick=()=>{const n=$("newInsName").value.trim();if(!n)return;state.insurance.push({name:n,value:+$("newInsValue").value||0});$("newInsName").value="";$("newInsValue").value="";save();renderAll()};$("saveEducation").onclick=saveEducation;
 $("saveLoan").onclick=()=>{state.loan={balance:+$("loanBalance").value||0,rate:+$("loanRate").value||0,payment:+$("loanPayment").value||0,age:+$("loanAge").value||40};save();renderAll();alert("保存しました")};
 $("saveFuture").onclick=()=>{state.future={saving:+$("futureSaving").value||0,invest:+$("futureInvest").value||0,rate:+$("futureRate").value||0,retireAge:+$("retireAge").value||65,annualSpend:+$("annualSpend").value||300};save();renderAll()};
@@ -376,7 +407,7 @@ $("exportData").onclick=async()=>{
   const auth=getAuth();
   const encrypted=JSON.parse(localStorage.getItem(ENCRYPTED_KEY)||"null");
   const backup={
-    version:"5.2",
+    version:"5.3",
     encrypted:true,
     exportedAt:new Date().toISOString(),
     encSalt:auth.encSalt,
@@ -403,6 +434,7 @@ $("importFile").onchange=e=>{
       const backupKey=await deriveEncryptionKey(password,base64ToBytes(backup.encSalt));
       const restored=await decryptObject(backup.data,backupKey);
       state={...clone(defaults),...restored};
+      ensureV50();
       await saveEncryptedState();
       renderAll();
       alert("暗号化バックアップを復元しました");
@@ -417,8 +449,8 @@ $("importFile").onchange=e=>{
 };
 
 $("themeToggle").onclick=()=>{state.dark=!state.dark;save();renderAll()};
-$("addNisa").onclick=()=>{const n=$("newNisaName").value.trim();if(!n)return;state.nisa.push({name:n,monthly:+$("newNisaMonthly").value||0});$("newNisaName").value="";$("newNisaMonthly").value="";save();renderNisa()};
-$("saveNisa").onclick=()=>{document.querySelectorAll("[data-nisa]").forEach(el=>{const x=state.nisa[+el.dataset.nisa],f=el.dataset.field;x[f]=f==="name"?el.value:(+el.value||0)});save();renderAll();alert("NISA積立を保存しました")};
+$("addNisa").onclick=()=>{const n=$("newNisaName").value.trim();if(!n)return alert("商品名を入力してください");state.nisa.push({owner,name:n,monthly:+$("newNisaMonthly").value||0,startDate:$("newNisaStartDate").value||today()});$("newNisaName").value="";$("newNisaMonthly").value="";$("newNisaStartDate").value=today();save();renderAll()};
+$("saveNisa").onclick=()=>{document.querySelectorAll("[data-nisa]").forEach(el=>{const x=state.nisa[+el.dataset.nisa],f=el.dataset.field;x[f]=(f==="name"||f==="startDate")?el.value:(+el.value||0)});save();renderAll();alert(owner+"の積立を保存しました")};
 
 
 $("unlockButton").onclick=handleUnlock;

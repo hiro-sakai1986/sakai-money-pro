@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f5f3f5">
-<title>サカイ家 MONEY Pro 5.2</title>
+<title>サカイ家 MONEY Pro 5.3</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <style>
@@ -41,7 +41,8 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
 .dividend-calendar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.div-month{background:var(--soft);border-radius:14px;padding:10px;text-align:center}.div-month strong{display:block;margin-top:4px}
 .fire-card{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.fire-box{background:var(--soft);border-radius:15px;padding:11px;text-align:center}.fire-box strong{display:block;font-size:18px;margin-top:4px}
 .asset-input-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.nisa-row{display:grid;grid-template-columns:1.2fr .7fr .7fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:.5px solid var(--line)}
+.nisa-row{display:grid;grid-template-columns:1.2fr .7fr 1fr .8fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:.5px solid var(--line)}
+.calc-value{font-weight:800;white-space:nowrap}.table .date-input{min-width:135px}.table .name-input{min-width:130px}.table .number-input{min-width:92px}.owner-note{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
 @media(max-width:430px){.dividend-calendar{grid-template-columns:repeat(2,1fr)}.fire-card{grid-template-columns:1fr}.nisa-row{grid-template-columns:1fr}}
 
 
@@ -71,7 +72,7 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
   </div>
 </div>
 
-<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.2</h1><div class="sub">暗号化版｜入力データ・バックアップをAES暗号化</div></div><div class="top-actions"><button class="icon-btn" id="lockNowButton" title="ロック">🔒</button><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
+<header><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><h1>サカイ家 MONEY Pro 5.3</h1><div class="sub">第一弾｜夫婦別の保有資産・積立管理＋自動計算</div></div><div class="top-actions"><button class="icon-btn" id="lockNowButton" title="ロック">🔒</button><button class="icon-btn" id="themeToggle">🌙</button></div></div></header>
 <main>
 <section id="home" class="screen active">
 <div class="hero">ダッシュボード</div>
@@ -125,16 +126,16 @@ body.dark header,body.dark nav{background:rgba(21,20,22,.94)}
 <section id="invest" class="screen">
 <div class="hero">投資</div><div class="tabs"><button class="active" data-owner="本人">本人</button><button data-owner="夫">夫</button></div>
 <div class="section">評価額</div><div class="grid3"><div class="card"><div class="label">本人</div><div id="selfTotal" class="metric">0万円</div></div><div class="card"><div class="label">夫</div><div id="husbandTotal" class="metric">0万円</div></div><div class="card"><div class="label">合計</div><div id="familyTotal" class="metric">0万円</div></div></div>
-<div class="section">保有資産</div><div class="card table-wrap"><table class="table"><thead><tr><th>名称</th><th>評価額</th><th>損益</th></tr></thead><tbody id="assetRows"></tbody></table><button class="primary" id="saveInvest">保存</button></div>
-<div class="section">追加</div><div class="card"><div class="form"><div><label>名称</label><input id="newAssetName"></div><div><label>評価額（万円）</label><input id="newAssetValue" type="number" step=".1"></div></div><button class="primary" id="addAsset">追加</button></div>
+<div class="section">保有資産</div><div class="card table-wrap"><table class="table"><thead><tr><th>入力日</th><th>名称</th><th>保有数</th><th>取得単価（円）</th><th>現在価格（円）</th><th>評価額</th><th>損益</th><th>年間配当（円）</th><th>受取月</th><th></th></tr></thead><tbody id="assetRows"></tbody></table><button class="primary" id="saveInvest">保存</button><div class="owner-note">保有数・取得単価・現在価格を入力すると、評価額と損益を自動計算します。以前のデータはそのまま引き継ぎます。</div></div>
+<div class="section">追加</div><div class="card"><div class="form"><div><label>入力日</label><input id="newAssetDate" type="date"></div><div><label>名称</label><input id="newAssetName"></div><div><label>保有数</label><input id="newAssetQuantity" type="number" step="0.0001"></div><div><label>取得単価（円）</label><input id="newAssetAcquisitionPrice" type="number" step="0.01"></div><div><label>現在価格（円）</label><input id="newAssetCurrentPrice" type="number" step="0.01"></div></div><button class="primary" id="addAsset">追加</button></div>
 
 <div class="section">配当金カレンダー</div>
 <div class="card"><div id="dividendCalendar" class="dividend-calendar"></div><div class="row"><span>年間配当見込み</span><strong id="annualDividend">0円</strong></div></div>
 
-<div class="section">NISA積立</div>
+<div class="section">積立・NISA</div>
 <div class="card"><div id="nisaList"></div>
-<div class="form" style="margin-top:10px"><div><label>商品名</label><input id="newNisaName" placeholder="例：S&P500"></div><div><label>月積立（万円）</label><input id="newNisaMonthly" type="number" step=".1"></div></div>
-<button class="primary" id="addNisa">追加</button><button class="secondary" id="saveNisa" style="width:100%;margin-top:8px">保存</button></div>
+<div class="form" style="margin-top:10px"><div><label>商品名</label><input id="newNisaName" placeholder="例：S&P500"></div><div><label>月積立（万円）</label><input id="newNisaMonthly" type="number" step=".1"></div><div><label>購入開始日</label><input id="newNisaStartDate" type="date"></div></div>
+<button class="primary" id="addNisa">追加</button><button class="secondary" id="saveNisa" style="width:100%;margin-top:8px">保存</button><div class="owner-note">上の「本人／夫」タブごとに別々に保存されます。開始日から積立月数と累計入金額を自動表示します。</div></div>
 </section>
 
 <section id="education" class="screen">
