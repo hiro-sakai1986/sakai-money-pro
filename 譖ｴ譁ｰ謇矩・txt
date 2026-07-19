@@ -1,0 +1,17 @@
+サカイ家 MONEY Pro 6.0 第二弾 更新手順
+
+1. このZIPを「すべて展開」します。
+2. 展開したフォルダ内のファイルをすべて選択します（Ctrl + A）。
+3. コピーします（Ctrl + C）。
+4. GitHub Desktopを開き、Current branch が v6-first-release になっていることを確認します。
+5. Show in Explorer を押します。
+6. 開いた sakai-money-pro フォルダ内へ貼り付けます（Ctrl + V）。
+7. 同じ名前のファイルは「置き換える」を選びます。
+8. GitHub DesktopのChangesで変更内容を確認します。
+9. Summaryに「MONEY Pro 6.0 第二弾」と入力し、Commit to v6-first-releaseを押します。
+10. Push originを押します。
+
+注意
+- mainブランチにはまだ反映しません。
+- パスワードロックは設定画面から任意で有効にできます。
+- パスワードを忘れると暗号化データは復旧できません。設定後はバックアップも保存してください。
