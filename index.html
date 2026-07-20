@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 7.0 第二弾</title>
+  <title>サカイ家 MONEY Pro 7.0 第三弾A</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">7.0 第二弾｜投資・資産管理</p>
+      <p class="subtitle">7.0 第三弾A｜資産ダッシュボード</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -35,6 +35,25 @@
         <article class="card metric-card"><span>今月収支</span><strong id="monthlyBalance">¥0</strong></article>
         <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
+
+      <h2>資産ダッシュボード</h2>
+      <div class="dashboard-grid">
+        <article class="card dashboard-card"><span>前月比</span><strong id="monthChange">—</strong><small id="monthChangeSub">記録をためると表示</small></article>
+        <article class="card dashboard-card"><span>今年の増減</span><strong id="yearChange">—</strong><small id="yearChangeSub">年初との比較</small></article>
+        <article class="card dashboard-card"><span>年間配当</span><strong id="dashboardDividend">¥0</strong><small>登録済みの年間予想</small></article>
+        <article class="card dashboard-card"><span>目標達成率</span><strong id="goalRate">0%</strong><small id="goalSub">目標を設定してください</small></article>
+      </div>
+
+      <article class="card goal-card">
+        <div class="goal-head"><div><span>資産目標</span><strong id="goalAmount">¥0</strong></div><small id="goalRemaining">あと ¥0</small></div>
+        <div class="progress-track"><div id="goalProgress" class="progress-bar"></div></div>
+      </article>
+
+      <h2>資産推移</h2>
+      <article class="card chart-card trend-card">
+        <canvas id="trendChart" width="640" height="260" aria-label="資産推移グラフ"></canvas>
+        <p class="chart-note" id="trendNote">月ごとの資産額を自動記録します。</p>
+      </article>
 
       <h2>今月の状況</h2>
       <article class="card">
@@ -148,6 +167,7 @@
         <div class="form-grid">
           <label>預金残高（円）<input id="cashInput" type="number" min="0"></label>
           <label>住宅ローン残高（円）<input id="loanInput" type="number" min="0"></label>
+          <label>資産目標（円）<input id="assetGoalInput" type="number" min="0" placeholder="例：10000000"></label>
         </div>
         <button class="primary" id="saveBaseButton">基本情報を保存</button>
       </article>
