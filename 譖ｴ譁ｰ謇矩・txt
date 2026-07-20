@@ -1,17 +1,13 @@
-サカイ家 MONEY Pro 6.0 第二弾 更新手順
+サカイ家 MONEY Pro 6.1 復旧版 更新手順
 
 1. このZIPを「すべて展開」します。
-2. 展開したフォルダ内のファイルをすべて選択します（Ctrl + A）。
-3. コピーします（Ctrl + C）。
-4. GitHub Desktopを開き、Current branch が v6-first-release になっていることを確認します。
-5. Show in Explorer を押します。
-6. 開いた sakai-money-pro フォルダ内へ貼り付けます（Ctrl + V）。
-7. 同じ名前のファイルは「置き換える」を選びます。
-8. GitHub DesktopのChangesで変更内容を確認します。
-9. Summaryに「MONEY Pro 6.0 第二弾」と入力し、Commit to v6-first-releaseを押します。
-10. Push originを押します。
+2. 展開したフォルダ内のファイルをすべて選択してコピーします。
+3. GitHub Desktopで v6-first-release ブランチを選びます。
+4. Repository → Show in Explorer を押します。
+5. 開いたフォルダへ貼り付け、「すべて置き換える」を選びます。
+6. GitHub Desktopで Summary に「MONEY Pro 6.1 復旧版」と入力してCommitします。
+7. Push originを押します。
+8. GitHub Pagesが v6-first-release / (root) を公開していることを確認します。
+9. 5分ほど待ってiPhoneのSafariで再読み込みします。
 
-注意
-- mainブランチにはまだ反映しません。
-- パスワードロックは設定画面から任意で有効にできます。
-- パスワードを忘れると暗号化データは復旧できません。設定後はバックアップも保存してください。
+この版は古いパスワード情報を自動削除し、パスワード画面を表示しません。

@@ -6,172 +6,109 @@
   <meta name="theme-color" content="#f4f4f7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 6.0</title>
+  <title>サカイ家 MONEY Pro 6.1</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <div id="lockScreen" class="lock-screen hidden" aria-live="polite">
-    <div class="lock-card">
-      <div class="lock-icon">🔐</div>
-      <p class="eyebrow">サカイ家 MONEY Pro</p>
-      <h1>ロック解除</h1>
-      <p class="lock-copy">設定したパスワードを入力してください。</p>
-      <input id="unlockPassword" type="password" autocomplete="current-password" placeholder="パスワード">
-      <button id="unlockButton" class="primary">開く</button>
-      <p id="unlockError" class="form-error"></p>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow" id="greeting">おはよう、ヒロ</p>
+      <h1>サカイ家 MONEY Pro</h1>
+      <p class="subtitle">6.1 復旧版｜ホーム・投資管理</p>
     </div>
-  </div>
+    <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
+  </header>
 
-  <div id="appShell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow" id="greeting">おはよう、ヒロ</p>
-        <h1>サカイ家 MONEY Pro</h1>
-        <p class="subtitle">6.0 第二弾｜夫婦別投資・配当・資産グラフ</p>
+  <main>
+    <section id="homeScreen" class="screen active">
+      <article class="hero-card">
+        <span>家族の金融資産</span>
+        <strong id="totalFinancial">¥0</strong>
+        <small id="totalProfit">評価損益 ¥0</small>
+      </article>
+
+      <div class="summary-grid">
+        <article class="card metric-card"><span>預金</span><strong id="cashSummary">¥0</strong></article>
+        <article class="card metric-card"><span>投資評価額</span><strong id="investmentSummary">¥0</strong></article>
+        <article class="card metric-card"><span>本人の投資</span><strong id="hiroSummary">¥0</strong></article>
+        <article class="card metric-card"><span>夫の投資</span><strong id="husbandSummary">¥0</strong></article>
       </div>
-      <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
-    </header>
 
-    <main>
-      <section id="homeScreen" class="screen active">
-        <article class="hero-card">
-          <span>家族の金融資産</span>
-          <strong id="totalFinancial">¥0</strong>
-          <small id="totalProfit">評価損益 ¥0</small>
-        </article>
+      <h2>基本情報</h2>
+      <article class="card form-card">
+        <label>預金残高（円）<input id="cashInput" type="number" min="0" inputmode="numeric"></label>
+        <button class="primary" id="saveCashButton">預金を保存</button>
+      </article>
 
-        <div class="summary-grid">
-          <article class="card metric-card"><span>預金</span><strong id="cashSummary">¥0</strong></article>
-          <article class="card metric-card"><span>投資評価額</span><strong id="investmentSummary">¥0</strong></article>
-          <article class="card metric-card"><span>年間配当</span><strong id="dividendSummary">¥0</strong></article>
-          <article class="card metric-card"><span>毎月の積立</span><strong id="monthlySummary">¥0</strong></article>
-        </div>
+      <h2>投資の内訳</h2>
+      <article class="card">
+        <div class="split-row"><span>本人</span><strong id="hiroBreakdown">¥0</strong></div>
+        <div class="split-row"><span>夫</span><strong id="husbandBreakdown">¥0</strong></div>
+        <div class="split-row"><span>毎月の積立合計</span><strong id="monthlyTotal">¥0</strong></div>
+        <div class="split-row"><span>年間配当合計</span><strong id="dividendTotal">¥0</strong></div>
+      </article>
+    </section>
 
-        <h2>夫婦別の投資</h2>
-        <article class="card owner-summary-card">
-          <div class="owner-summary-row">
-            <div><span>本人</span><small id="hiroProfitSummary">損益 ¥0</small></div>
-            <strong id="hiroSummary">¥0</strong>
-          </div>
-          <div class="owner-summary-row">
-            <div><span>夫</span><small id="husbandProfitSummary">損益 ¥0</small></div>
-            <strong id="husbandSummary">¥0</strong>
-          </div>
-        </article>
-
-        <h2>資産配分</h2>
-        <article class="card chart-card">
-          <canvas id="allocationChart" width="320" height="220" aria-label="資産配分グラフ"></canvas>
-          <div id="allocationLegend" class="chart-legend"></div>
-        </article>
-
-        <h2>基本情報</h2>
-        <article class="card form-card">
-          <label>預金残高（円）<input id="cashInput" type="number" min="0" inputmode="numeric"></label>
-          <button class="primary" id="saveCashButton">預金を保存</button>
-        </article>
-      </section>
-
-      <section id="investScreen" class="screen">
-        <div class="segmented" role="tablist" aria-label="所有者切替">
-          <button class="owner-tab active" data-owner="本人">本人</button>
-          <button class="owner-tab" data-owner="夫">夫</button>
-        </div>
-
-        <article class="owner-kpi card">
-          <div><span>評価額</span><strong id="ownerMarket">¥0</strong></div>
-          <div><span>評価損益</span><strong id="ownerProfit">¥0</strong></div>
-          <div><span>年間配当</span><strong id="ownerDividend">¥0</strong></div>
-        </article>
-
-        <h2>保有資産</h2>
-        <article class="card form-card">
-          <input id="assetEditId" type="hidden">
-          <div class="form-grid">
-            <label>銘柄・商品名<input id="assetName" placeholder="例：任天堂"></label>
-            <label>区分<select id="assetType"><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></label>
-            <label>口座<select id="assetAccount"><option>NISA</option><option>特定口座</option><option>一般口座</option></select></label>
-            <label>入力日<input id="assetDate" type="date"></label>
-            <label>保有数<input id="assetQuantity" type="number" min="0" step="0.0001" inputmode="decimal"></label>
-            <label>取得単価（円）<input id="assetCost" type="number" min="0" step="0.01" inputmode="decimal"></label>
-            <label>現在価格（円）<input id="assetPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
-            <label>年間配当（円）<input id="assetDividend" type="number" min="0" step="1" inputmode="numeric"></label>
-          </div>
-          <div class="form-actions">
-            <button class="primary" id="addAssetButton">保有資産を追加</button>
-            <button class="secondary hidden" id="cancelAssetEditButton">編集をやめる</button>
-          </div>
-        </article>
-        <div class="list-toolbar">
-          <input id="assetSearch" type="search" placeholder="銘柄を検索">
-          <select id="assetSort" aria-label="並び順"><option value="date-desc">新しい順</option><option value="market-desc">評価額順</option><option value="profit-desc">損益順</option><option value="name-asc">名前順</option></select>
-        </div>
-        <div id="assetList" class="stack"></div>
-
-        <h2>積立・NISA</h2>
-        <article class="card form-card">
-          <input id="planEditId" type="hidden">
-          <div class="form-grid">
-            <label>商品名<input id="planName" placeholder="例：S&P500"></label>
-            <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
-            <label>購入開始日<input id="planStart" type="date"></label>
-            <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
-          </div>
-          <div class="form-actions">
-            <button class="primary" id="addPlanButton">積立を追加</button>
-            <button class="secondary hidden" id="cancelPlanEditButton">編集をやめる</button>
-          </div>
-        </article>
-        <div id="planList" class="stack"></div>
-      </section>
-
-      <section id="settingsScreen" class="screen">
-        <h2>データ管理</h2>
-        <article class="card settings-actions">
-          <button class="secondary" id="exportButton">バックアップを書き出す</button>
-          <label class="file-button">バックアップを読み込む<input id="importInput" type="file" accept="application/json"></label>
-          <button class="danger" id="resetButton">すべてのデータを初期化</button>
-        </article>
-
-        <h2>セキュリティ</h2>
-        <article class="card settings-actions">
-          <div id="securityStatus" class="status-line"></div>
-          <button class="secondary" id="setPasswordButton">パスワードロックを設定</button>
-          <button class="secondary hidden" id="changePasswordButton">パスワードを変更</button>
-          <button class="danger hidden" id="removePasswordButton">パスワードロックを解除</button>
-          <button class="secondary hidden" id="lockNowButton">今すぐロック</button>
-        </article>
-
-        <article class="card note">
-          <strong>保存と暗号化について</strong>
-          <p>入力内容はこの端末のブラウザ内に保存されます。パスワードロックを設定すると、保存データはAES-GCMで暗号化されます。パスワードを忘れると復旧できないため、必ずバックアップも保存してください。</p>
-        </article>
-      </section>
-    </main>
-
-    <nav class="bottom-nav">
-      <button class="nav-button active" data-screen="homeScreen"><span>⌂</span>ホーム</button>
-      <button class="nav-button" data-screen="investScreen"><span>↗</span>投資</button>
-      <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
-    </nav>
-  </div>
-
-  <dialog id="passwordDialog" class="password-dialog">
-    <form method="dialog" id="passwordForm">
-      <h2 id="passwordDialogTitle">パスワードロックを設定</h2>
-      <p id="passwordDialogCopy">8文字以上のパスワードを設定してください。</p>
-      <label id="currentPasswordLabel" class="hidden">現在のパスワード<input id="currentPassword" type="password" autocomplete="current-password"></label>
-      <label>新しいパスワード<input id="newPassword" type="password" autocomplete="new-password"></label>
-      <label>新しいパスワード（確認）<input id="confirmPassword" type="password" autocomplete="new-password"></label>
-      <p id="passwordFormError" class="form-error"></p>
-      <div class="dialog-actions">
-        <button value="cancel" class="secondary">キャンセル</button>
-        <button id="savePasswordButton" value="default" class="primary">保存</button>
+    <section id="investScreen" class="screen">
+      <div class="segmented" role="tablist">
+        <button class="owner-tab active" data-owner="本人">本人</button>
+        <button class="owner-tab" data-owner="夫">夫</button>
       </div>
-    </form>
-  </dialog>
+
+      <h2>保有資産</h2>
+      <article class="card form-card" id="assetFormCard">
+        <label>検索<input id="assetSearch" placeholder="銘柄名・区分で検索"></label>
+        <div class="form-grid">
+          <label>銘柄・商品名<input id="assetName" placeholder="例：任天堂"></label>
+          <label>区分<select id="assetType"><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></label>
+          <label>口座<select id="assetAccount"><option>NISA</option><option>特定口座</option><option>一般口座</option></select></label>
+          <label>入力日<input id="assetDate" type="date"></label>
+          <label>保有数<input id="assetQuantity" type="number" min="0" step="0.0001" inputmode="decimal"></label>
+          <label>取得単価（円）<input id="assetCost" type="number" min="0" step="0.01" inputmode="decimal"></label>
+          <label>現在価格（円）<input id="assetPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
+          <label>年間配当（円）<input id="assetDividend" type="number" min="0" step="1" inputmode="numeric"></label>
+        </div>
+        <button class="primary" id="addAssetButton">保有資産を追加</button>
+        <button class="secondary" id="cancelAssetEdit" hidden>編集をキャンセル</button>
+      </article>
+      <div id="assetList" class="stack"></div>
+
+      <h2>積立・NISA</h2>
+      <article class="card form-card" id="planFormCard">
+        <div class="form-grid">
+          <label>商品名<input id="planName" placeholder="例：S&P500"></label>
+          <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
+          <label>購入開始日<input id="planStart" type="date"></label>
+          <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
+        </div>
+        <button class="primary" id="addPlanButton">積立を追加</button>
+        <button class="secondary" id="cancelPlanEdit" hidden>編集をキャンセル</button>
+      </article>
+      <div id="planList" class="stack"></div>
+    </section>
+
+    <section id="settingsScreen" class="screen">
+      <h2>データ管理</h2>
+      <article class="card settings-actions">
+        <button class="secondary" id="exportButton">バックアップを書き出す</button>
+        <label class="file-button">バックアップを読み込む<input id="importInput" type="file" accept="application/json"></label>
+        <button class="secondary" id="clearOldLockButton">古いパスワード情報を削除</button>
+        <button class="danger" id="resetButton">すべてのデータを初期化</button>
+      </article>
+      <article class="card note">
+        <strong>保存について</strong>
+        <p>入力内容は、この端末のブラウザ内に保存されます。6.1復旧版は、古いパスワード情報を自動削除し、必ず開けることを優先しています。</p>
+      </article>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-button active" data-screen="homeScreen"><span>⌂</span>ホーム</button>
+    <button class="nav-button" data-screen="investScreen"><span>↗</span>投資</button>
+    <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
+  </nav>
 
   <script src="./app.js"></script>
 </body>
