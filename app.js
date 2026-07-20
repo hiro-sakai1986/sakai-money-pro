@@ -2,8 +2,12 @@
 
 const STORAGE_KEY="sakaiMoneyPro6SecondRelease";
 const LEGACY_KEY="sakaiMoneyPro6FirstRelease";
-const ENCRYPTED_KEY="sakaiMoneyPro6EncryptedState";
-const AUTH_KEY="sakaiMoneyPro6Auth";
+const ENCRYPTED_KEY="sakaiMoneyPro6EncryptedStateReset20260720";
+const AUTH_KEY="sakaiMoneyPro6AuthReset20260720";
+const RESET_MARKER_KEY="sakaiMoneyPro6PasswordReset20260720";
+const OLD_AUTH_KEYS=["sakaiMoneyPro6Auth","sakaiMoneyPro51Auth"];
+const OLD_ENCRYPTED_KEYS=["sakaiMoneyPro6EncryptedState","sakaiMoneyPro52EncryptedState"];
+let forcedInitialSetup=false;
 const AUTO_LOCK_MS=10*60*1000;
 const defaultState={cash:0,dark:false,assets:[],plans:[]};
 let state=structuredClone(defaultState);
@@ -232,7 +236,7 @@ $("passwordForm").addEventListener("submit",async e=>{
     }
     const salt=crypto.getRandomValues(new Uint8Array(16)),key=await deriveKey(newPassword,salt);
     localStorage.setItem(AUTH_KEY,JSON.stringify({salt:bytesToBase64(salt),iterations:180000,createdAt:new Date().toISOString()}));
-    activeKey=key;await saveState();localStorage.removeItem(STORAGE_KEY);$("passwordDialog").close();renderSecurity();resetAutoLock();toast(passwordMode==="change"?"パスワードを変更しました":"パスワードロックを設定しました");
+    activeKey=key;await saveState();localStorage.removeItem(STORAGE_KEY);forcedInitialSetup=false;$("passwordDialog").close();renderSecurity();resetAutoLock();toast(passwordMode==="change"?"パスワードを変更しました":"新しいパスワードを設定しました");
   }catch{$("passwordFormError").textContent="現在のパスワードが違います。";}
 });
 
@@ -243,10 +247,28 @@ $("unlockPassword").addEventListener("keydown",e=>{if(e.key==="Enter")$("unlockB
 ["pointerdown","keydown","touchstart"].forEach(name=>document.addEventListener(name,resetAutoLock,{passive:true}));
 window.addEventListener("resize",()=>{if(!$("homeScreen").classList.contains("active"))return;drawAllocationChart();});
 
+function clearOldPasswordStateOnce(){
+  if(localStorage.getItem(RESET_MARKER_KEY))return;
+  OLD_AUTH_KEYS.forEach(key=>localStorage.removeItem(key));
+  OLD_ENCRYPTED_KEYS.forEach(key=>localStorage.removeItem(key));
+  localStorage.setItem(RESET_MARKER_KEY,new Date().toISOString());
+  forcedInitialSetup=true;
+}
+
 async function init(){
   $("assetDate").value=today();$("planStart").value=today();
+  clearOldPasswordStateOnce();
   if(hasPassword()){lockApp();return;}
   state=loadPlainState();renderAll();
+  if(forcedInitialSetup||!localStorage.getItem(AUTH_KEY)){
+    forcedInitialSetup=true;
+    setTimeout(()=>openPasswordDialog("set"),150);
+  }
 }
+
+$("passwordDialog").addEventListener("close",()=>{
+  if(forcedInitialSetup&&!hasPassword())setTimeout(()=>openPasswordDialog("set"),100);
+});
+
 init();
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(console.error));
