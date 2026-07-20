@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 7.0 第三弾A</title>
+  <title>サカイ家 MONEY Pro 7.0 第三弾B</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">7.0 第三弾A｜資産ダッシュボード</p>
+      <p class="subtitle">7.0 第三弾B｜投資分析</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -99,6 +99,18 @@
         <article class="mini-card"><span>年間配当</span><strong id="ownerDividend">¥0</strong></article>
       </div>
 
+      <h2>投資成績</h2>
+      <div class="analysis-grid">
+        <article class="card analysis-card"><span>投資元本</span><strong id="analysisInvested">¥0</strong></article>
+        <article class="card analysis-card"><span>損益率</span><strong id="analysisProfitRate">0.0%</strong></article>
+        <article class="card analysis-card"><span>配当利回り</span><strong id="analysisYield">0.0%</strong></article>
+        <article class="card analysis-card"><span>銘柄数</span><strong id="analysisCount">0</strong></article>
+      </div>
+      <article class="card chart-card investment-chart-card">
+        <canvas id="investmentAllocationChart" width="640" height="230" aria-label="投資資産配分グラフ"></canvas>
+        <div id="investmentAllocationLegend" class="legend"></div>
+      </article>
+
       <div id="assetFormWrap">
         <h2>保有資産を登録</h2>
         <article class="card form-card">
@@ -118,7 +130,7 @@
           <div class="button-row"><button class="primary" id="saveAssetButton">保有資産を追加</button><button class="secondary hidden" id="cancelAssetEdit">編集を取消</button></div>
         </article>
       </div>
-      <div class="toolbar"><input id="assetSearch" placeholder="銘柄を検索"><select id="assetFilter"><option value="all">すべて</option><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></div>
+      <div class="toolbar asset-toolbar"><input id="assetSearch" placeholder="銘柄を検索"><select id="assetFilter"><option value="all">すべて</option><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select><select id="assetSort"><option value="marketDesc">評価額が高い順</option><option value="profitDesc">利益が大きい順</option><option value="profitAsc">損失が大きい順</option><option value="yieldDesc">配当利回り順</option><option value="nameAsc">名前順</option></select></div>
       <div id="assetList" class="stack"></div>
 
       <div id="planFormWrap">
@@ -137,6 +149,14 @@
         </article>
       </div>
       <div id="planList" class="stack"></div>
+
+      <h2>保有株ランキング</h2>
+      <div class="ranking-tabs segmented three">
+        <button class="ranking-tab active" data-ranking="market">評価額</button>
+        <button class="ranking-tab" data-ranking="profit">損益</button>
+        <button class="ranking-tab" data-ranking="yield">配当利回り</button>
+      </div>
+      <div id="rankingList" class="ranking-list"></div>
 
       <h2>配当カレンダー</h2>
       <article class="card"><div id="dividendCalendar" class="calendar-grid"></div></article>

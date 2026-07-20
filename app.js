@@ -1,7 +1,8 @@
 "use strict";
 
-const STORAGE_KEY = "sakaiMoneyPro7ThirdA";
+const STORAGE_KEY = "sakaiMoneyPro7ThirdB";
 const LEGACY_KEYS = [
+  "sakaiMoneyPro7ThirdA",
   "sakaiMoneyPro7SecondRelease",
   "sakaiMoneyPro7FirstRelease",
   "sakaiMoneyPro6FirstRelease",
@@ -22,6 +23,7 @@ const defaultState = {
 
 let state = loadState();
 let currentOwner = "本人";
+let currentRanking = "market";
 
 const $ = id => document.getElementById(id);
 const yen = value => new Intl.NumberFormat("ja-JP", {
@@ -244,6 +246,63 @@ function renderTransactions() {
   const list = state.transactions.filter(t => String(t.date).startsWith(month) && `${t.category} ${t.memo}`.toLowerCase().includes(query)).sort((a, b) => b.date.localeCompare(a.date));
   $("txList").innerHTML = list.length ? list.map(t => `<article class="item-card compact"><div><div class="item-title">${escapeHtml(t.category || "未分類")}</div><div class="item-sub">${escapeHtml(t.date)}${t.memo ? `・${escapeHtml(t.memo)}` : ""}</div></div><div class="tx-right"><strong class="${t.kind === 'expense' ? 'negative' : 'positive'}">${t.kind === 'expense' ? '-' : '+'}${yen(t.amount)}</strong><button class="delete-button" data-delete-tx="${t.id}">削除</button></div></article>`).join("") : `<div class="empty">この月の記録はありません。</div>`;
 }
+function assetDividendYield(a) {
+  const m = assetMetrics(a);
+  return m.invested ? num(a.dividend) / m.invested * 100 : 0;
+}
+function investmentAnalysis() {
+  const assets = visibleAssets();
+  const totals = assets.reduce((acc, a) => {
+    const m = assetMetrics(a);
+    acc.market += m.market; acc.invested += m.invested; acc.profit += m.profit; acc.dividend += num(a.dividend);
+    return acc;
+  }, { market: 0, invested: 0, profit: 0, dividend: 0 });
+  totals.profitRate = totals.invested ? totals.profit / totals.invested * 100 : 0;
+  totals.yieldRate = totals.invested ? totals.dividend / totals.invested * 100 : 0;
+  totals.count = assets.length;
+  return totals;
+}
+function renderInvestmentAnalysis() {
+  const t = investmentAnalysis();
+  $("analysisInvested").textContent = yen(t.invested);
+  $("analysisProfitRate").textContent = `${t.profitRate >= 0 ? "+" : ""}${t.profitRate.toFixed(1)}%`;
+  $("analysisProfitRate").className = t.profitRate < 0 ? "negative" : "positive";
+  $("analysisYield").textContent = `${t.yieldRate.toFixed(2)}%`;
+  $("analysisCount").textContent = `${t.count}銘柄`;
+  drawInvestmentAllocation();
+}
+function drawInvestmentAllocation() {
+  const canvas = $("investmentAllocationChart"), ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = 230;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  const colors = ["#9d6b7e", "#c29a6b", "#78958a", "#7c82a3", "#aa7f61"];
+  const grouped = {};
+  for (const a of visibleAssets()) grouped[a.type || "その他"] = (grouped[a.type || "その他"] || 0) + assetMetrics(a).market;
+  const parts = Object.entries(grouped).map(([name, value], i) => ({ name, value, color: colors[i % colors.length] })).filter(x => x.value > 0);
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  if (!total) {
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.textAlign = "center"; ctx.font = "13px sans-serif";
+    ctx.fillText("保有資産を登録すると表示されます", w / 2, h / 2); $("investmentAllocationLegend").innerHTML = ""; return;
+  }
+  const left = 20, right = 20, top = 20, barH = 34, usable = w - left - right;
+  let x = left;
+  for (const p of parts) {
+    const bw = usable * p.value / total; ctx.fillStyle = p.color; ctx.fillRect(x, top, bw, barH); x += bw;
+  }
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--text"); ctx.font = "800 22px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(yen(total), w / 2, 105);
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.font = "12px sans-serif"; ctx.fillText("投資評価額", w / 2, 126);
+  $("investmentAllocationLegend").innerHTML = parts.map(p => `<span><i style="background:${p.color}"></i>${escapeHtml(p.name)} ${Math.round(p.value / total * 100)}%</span>`).join("");
+}
+function renderRanking() {
+  const assets = visibleAssets().map(a => ({ a, m: assetMetrics(a), yieldRate: assetDividendYield(a) }));
+  const sorted = [...assets].sort((x, y) => currentRanking === "market" ? y.m.market - x.m.market : currentRanking === "profit" ? y.m.profit - x.m.profit : y.yieldRate - x.yieldRate).slice(0, 5);
+  $("rankingList").innerHTML = sorted.length ? sorted.map((x, i) => {
+    const value = currentRanking === "market" ? yen(x.m.market) : currentRanking === "profit" ? signedYen(x.m.profit) : `${x.yieldRate.toFixed(2)}%`;
+    const cls = currentRanking === "profit" ? (x.m.profit < 0 ? "negative" : "positive") : "";
+    return `<article class="ranking-item"><span class="rank-badge">${i + 1}</span><div><strong>${escapeHtml(x.a.name)}</strong><small>${escapeHtml(x.a.type)}・${escapeHtml(x.a.owner)}</small></div><b class="${cls}">${value}</b></article>`;
+  }).join("") : `<div class="empty">ランキングを表示する保有資産がありません。</div>`;
+}
 function renderOwnerSummary() {
   const t = currentOwner === "家族合計" ? investmentTotals() : investmentTotals(currentOwner);
   $("ownerMarket").textContent = yen(t.market); $("ownerProfit").textContent = yen(t.profit);
@@ -252,8 +311,15 @@ function renderOwnerSummary() {
   $("assetFormWrap").classList.toggle("hidden", !editable); $("planFormWrap").classList.toggle("hidden", !editable);
 }
 function renderAssets() {
-  const q = $("assetSearch").value.trim().toLowerCase(), filter = $("assetFilter").value;
-  const list = visibleAssets().filter(a => (filter === "all" || a.type === filter) && `${a.name} ${a.broker || ""}`.toLowerCase().includes(q));
+  const q = $("assetSearch").value.trim().toLowerCase(), filter = $("assetFilter").value, sort = $("assetSort").value;
+  const list = visibleAssets().filter(a => (filter === "all" || a.type === filter) && `${a.name} ${a.broker || ""}`.toLowerCase().includes(q)).sort((a, b) => {
+    const am = assetMetrics(a), bm = assetMetrics(b);
+    if (sort === "profitDesc") return bm.profit - am.profit;
+    if (sort === "profitAsc") return am.profit - bm.profit;
+    if (sort === "yieldDesc") return assetDividendYield(b) - assetDividendYield(a);
+    if (sort === "nameAsc") return String(a.name).localeCompare(String(b.name), "ja");
+    return bm.market - am.market;
+  });
   $("assetList").innerHTML = list.length ? list.map(a => {
     const m = assetMetrics(a);
     return `<article class="item-card"><div class="item-head"><div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}・${escapeHtml(a.type)}・${escapeHtml(a.account)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${m.profit >= 0 ? '+' : ''}${yen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
@@ -284,7 +350,7 @@ function renderEducation() {
 }
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
-  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderAssets(); renderPlans(); renderDividendCalendar(); renderEducation();
+  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderEducation();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearAssetForm() {
@@ -335,14 +401,18 @@ $("cancelAssetEdit").addEventListener("click", clearAssetForm);
 $("cancelPlanEdit").addEventListener("click", clearPlanForm);
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderAssets(); renderPlans(); renderDividendCalendar();
+  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar();
+}));
+document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
+  currentRanking = b.dataset.ranking; document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x === b)); renderRanking();
 }));
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
   if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); }, 50);
+  if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
 }));
-["assetSearch", "assetFilter"].forEach(id => $(id).addEventListener("input", renderAssets));
+["assetSearch", "assetFilter", "assetSort"].forEach(id => $(id).addEventListener("input", renderAssets));
 ["txSearch", "txMonth"].forEach(id => $(id).addEventListener("input", renderTransactions));
 $("saveEducation").addEventListener("click", () => {
   state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value) };
@@ -352,9 +422,9 @@ $("saveBaseButton").addEventListener("click", () => {
   state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
-$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); });
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "7.0-third-a", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "7.0-third-b", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -367,7 +437,7 @@ $("resetButton").addEventListener("click", () => {
   if (!confirm("すべての入力データを削除します。よろしいですか？")) return;
   state = clone(defaultState); saveState(); renderAll();
 });
-window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } });
+window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); });
 
 $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today();
 recordSnapshot(); saveState(); renderAll();
