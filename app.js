@@ -1,7 +1,8 @@
 "use strict";
 
-const STORAGE_KEY = "sakaiMoneyPro7ThirdC";
+const STORAGE_KEY = "sakaiMoneyPro7ThirdD";
 const LEGACY_KEYS = [
+  "sakaiMoneyPro7ThirdC",
   "sakaiMoneyPro7ThirdB",
   "sakaiMoneyPro7ThirdA",
   "sakaiMoneyPro7SecondRelease",
@@ -18,7 +19,13 @@ const defaultState = {
   assets: [],
   plans: [],
   transactions: [],
-  education: { child1: 0, child2: 0, child3: 0, monthly: 0 },
+  education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
+  mortgage: { balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
+  savingsGoals: [
+    { id: "default-car", category: "車", name: "セレナ買い替え", current: 0, target: 2000000, monthly: 20000, deadline: "2027-04-01" },
+    { id: "default-travel", category: "旅行", name: "家族旅行", current: 0, target: 500000, monthly: 10000, deadline: "2027-10-01" },
+    { id: "default-repair", category: "住宅修繕", name: "家の修繕・家電", current: 0, target: 1000000, monthly: 10000, deadline: "2030-12-31" }
+  ],
   snapshots: [],
   lifeEvents: [
     { id: "default-2029", year: 2029, person: "長女", title: "小学校卒業・中学校入学", cost: 0 },
@@ -56,7 +63,10 @@ function normalize(raw) {
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.snapshots = Array.isArray(s.snapshots) ? s.snapshots : [];
   s.lifeEvents = Array.isArray(s.lifeEvents) ? s.lifeEvents : clone(defaultState.lifeEvents);
+  s.savingsGoals = Array.isArray(s.savingsGoals) ? s.savingsGoals : clone(defaultState.savingsGoals);
   s.education = { ...defaultState.education, ...(s.education || {}) };
+  s.mortgage = { ...defaultState.mortgage, ...(s.mortgage || {}) };
+  if (!s.mortgage.balance && s.loan) s.mortgage.balance = Math.max(0, Number(s.loan) || 0);
   s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
   return s;
 }
@@ -117,6 +127,24 @@ function budgetTotals(month = monthKey()) {
 function educationTotal() {
   return num(state.education.child1) + num(state.education.child2) + num(state.education.child3);
 }
+function monthsUntil(dateString) {
+  if (!dateString) return 0;
+  const now = new Date(), end = new Date(`${dateString}T00:00:00`);
+  return Math.max(0, (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth()));
+}
+function goalMetrics(g) {
+  const current = num(g.current), target = num(g.target), monthly = num(g.monthly);
+  const remaining = Math.max(0, target - current), months = monthsUntil(g.deadline);
+  const neededMonthly = months ? Math.ceil(remaining / months) : remaining;
+  const rate = target ? Math.min(100, current / target * 100) : 0;
+  return { current, target, monthly, remaining, months, neededMonthly, rate };
+}
+function mortgageMetrics() {
+  const m = state.mortgage, balance = num(m.balance), annual = num(m.monthly) * 12 + num(m.bonusAnnual);
+  const years = Math.max(0, Number(m.endYear || 0) - new Date().getFullYear());
+  const roughInterest = balance * (num(m.rate) / 100) * years / 2;
+  return { balance, annual, years, roughInterest, afterExtra: Math.max(0, balance - num(m.extra)) };
+}
 function financialAssets() { return num(state.cash) + investmentTotals().market + educationTotal(); }
 function netWorthValue() { return financialAssets() - num(state.loan); }
 function recordSnapshot() {
@@ -165,7 +193,10 @@ function charlieAdviceItems() {
 
   const next = [...state.lifeEvents].filter(e => Number(e.year) >= new Date().getFullYear()).sort((a,b)=>Number(a.year)-Number(b.year))[0];
   if (next) items.push({ icon: "○", tone: "neutral", text: `次の予定は${next.year}年「${next.person}・${next.title}」です${num(next.cost) ? `。予定費用は${yen(next.cost)}です` : ""}。` });
-  return items.slice(0,4);
+  const behind = state.savingsGoals.map(g => ({ g, m: goalMetrics(g) })).filter(x => x.m.months > 0 && x.m.monthly < x.m.neededMonthly).sort((a,b)=>(b.m.neededMonthly-b.m.monthly)-(a.m.neededMonthly-a.m.monthly))[0];
+  if (behind) items.push({ icon: "⏳", tone: "warn", text: `${behind.g.name}は、目標日に間に合わせるには月${yen(behind.m.neededMonthly)}が目安です。現在より${yen(Math.max(0, behind.m.neededMonthly-behind.m.monthly))}増やすと近づきます。` });
+  else if (state.savingsGoals.length) items.push({ icon: "✓", tone: "good", text: "目的別積立は、登録した目標ペースにおおむね沿っています。" });
+  return items.slice(0,5);
 }
 function renderCharlieAdvice() {
   const items = charlieAdviceItems();
@@ -392,15 +423,46 @@ function clearEventForm() {
   $("eventId").value = ""; $("eventYear").value = ""; $("eventTitle").value = ""; $("eventCost").value = ""; $("eventPerson").value = "家族";
   $("saveEventButton").textContent = "予定を追加"; $("cancelEventEdit").classList.add("hidden");
 }
+function renderMortgage() {
+  const m = state.mortgage, x = mortgageMetrics();
+  $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
+  $("mortgageBonus").value = m.bonusAnnual || ""; $("mortgageEndYear").value = m.endYear || ""; $("mortgageExtra").value = m.extra || "";
+  $("mortgageAnnualSummary").textContent = yen(x.annual);
+  $("mortgageYearsSummary").textContent = x.years ? `約${x.years}年` : "—";
+  $("mortgageInterestSummary").textContent = yen(x.roughInterest);
+  $("mortgageAfterExtraSummary").textContent = yen(x.afterExtra);
+}
+function educationProgressCard(name, current, target) {
+  const rate = target ? Math.min(100, current / target * 100) : 0;
+  return `<article class="card progress-card"><div class="progress-title"><div><span>${name}</span><strong>${yen(current)} / ${yen(target)}</strong></div><b>${rate.toFixed(1)}%</b></div><div class="progress-track"><div class="progress-bar" style="width:${rate}%"></div></div><small>あと ${yen(Math.max(0,target-current))}</small></article>`;
+}
 function renderEducation() {
   const e = state.education;
   $("edu1").value = e.child1 || ""; $("edu2").value = e.child2 || ""; $("edu3").value = e.child3 || ""; $("eduMonthly").value = e.monthly || "";
-  $("edu1Summary").textContent = yen(e.child1); $("edu2Summary").textContent = yen(e.child2); $("edu3Summary").textContent = yen(e.child3);
-  $("eduTotalSummary").textContent = yen(educationTotal());
+  $("edu1Target").value = e.target1 || ""; $("edu2Target").value = e.target2 || ""; $("edu3Target").value = e.target3 || "";
+  $("educationProgressList").innerHTML = [
+    educationProgressCard("長女", num(e.child1), num(e.target1)),
+    educationProgressCard("次女", num(e.child2), num(e.target2)),
+    educationProgressCard("三女", num(e.child3), num(e.target3))
+  ].join("");
+}
+function renderSavingsGoals() {
+  const list = [...state.savingsGoals].sort((a,b)=>String(a.deadline||"9999").localeCompare(String(b.deadline||"9999")));
+  $("savingsGoalList").innerHTML = list.length ? list.map(g => {
+    const m = goalMetrics(g), status = m.months && m.monthly < m.neededMonthly ? `月あと ${yen(m.neededMonthly-m.monthly)}必要` : m.remaining ? "目標ペース内" : "達成済み";
+    return `<article class="card savings-card"><div class="progress-title"><div><span class="goal-chip">${escapeHtml(g.category)}</span><strong>${escapeHtml(g.name)}</strong></div><b>${m.rate.toFixed(1)}%</b></div><div class="progress-track"><div class="progress-bar" style="width:${m.rate}%"></div></div><div class="goal-stats"><span>現在 ${yen(m.current)}</span><span>目標 ${yen(m.target)}</span><span>毎月 ${yen(m.monthly)}</span><span>${g.deadline ? escapeHtml(g.deadline) : "期限なし"}</span></div><p class="goal-status ${status.includes("必要") ? "negative" : "positive"}">${status}</p><div class="item-actions"><button class="edit-button" data-edit-goal="${g.id}">編集</button><button class="delete-button" data-delete-goal="${g.id}">削除</button></div></article>`;
+  }).join("") : '<div class="empty">車・旅行・修繕などの積立目標を追加できます。</div>';
+  const totals = state.savingsGoals.reduce((a,g)=>{a.current+=num(g.current);a.target+=num(g.target);a.monthly+=num(g.monthly);return a;},{current:0,target:0,monthly:0});
+  $("goalsTargetTotal").textContent = yen(totals.target); $("goalsCurrentTotal").textContent = yen(totals.current); $("goalsMonthlyTotal").textContent = yen(totals.monthly);
+  $("goalsRateTotal").textContent = `${(totals.target ? Math.min(100,totals.current/totals.target*100) : 0).toFixed(1)}%`;
+}
+function clearGoalForm() {
+  $("goalId").value = ""; ["goalName","goalCurrent","goalTarget","goalMonthly","goalDeadline"].forEach(id => $(id).value = "");
+  $("goalCategory").value = "車"; $("saveGoalButton").textContent = "積立目標を追加"; $("cancelGoalEdit").classList.add("hidden");
 }
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
-  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderEducation(); renderLifeEvents();
+  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearAssetForm() {
@@ -455,6 +517,13 @@ document.addEventListener("click", e => {
   if (d.deleteEvent && confirm("この予定を削除しますか？")) {
     state.lifeEvents = state.lifeEvents.filter(x => x.id !== d.deleteEvent); saveState(); renderAll();
   }
+  if (d.editGoal) {
+    const g = state.savingsGoals.find(x => x.id === d.editGoal); if (g) {
+      $("goalId").value = g.id; $("goalCategory").value = g.category; $("goalName").value = g.name; $("goalCurrent").value = g.current; $("goalTarget").value = g.target; $("goalMonthly").value = g.monthly; $("goalDeadline").value = g.deadline || "";
+      $("saveGoalButton").textContent = "変更を保存"; $("cancelGoalEdit").classList.remove("hidden"); $("goalName").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+  if (d.deleteGoal && confirm("この積立目標を削除しますか？")) { state.savingsGoals = state.savingsGoals.filter(x => x.id !== d.deleteGoal); saveState(); renderAll(); }
 });
 $("cancelAssetEdit").addEventListener("click", clearAssetForm);
 $("cancelPlanEdit").addEventListener("click", clearPlanForm);
@@ -484,17 +553,29 @@ $("saveEventButton").addEventListener("click", () => {
   saveState(); clearEventForm(); renderAll();
 });
 $("cancelEventEdit").addEventListener("click", clearEventForm);
+$("saveMortgageButton").addEventListener("click", () => {
+  state.mortgage = { balance: num($("mortgageBalance").value), rate: num($("mortgageRate").value), monthly: num($("mortgageMonthly").value), bonusAnnual: num($("mortgageBonus").value), endYear: Number($("mortgageEndYear").value) || 0, extra: num($("mortgageExtra").value) };
+  state.loan = state.mortgage.balance; saveState(); renderAll(); alert("住宅ローンを保存しました");
+});
+$("saveGoalButton").addEventListener("click", () => {
+  const name = $("goalName").value.trim(), target = num($("goalTarget").value);
+  if (!name || !target) return alert("名称と目標額を入力してください");
+  const id = $("goalId").value || uid(), item = { id, category: $("goalCategory").value, name, current: num($("goalCurrent").value), target, monthly: num($("goalMonthly").value), deadline: $("goalDeadline").value };
+  const index = state.savingsGoals.findIndex(g => g.id === id); if (index >= 0) state.savingsGoals[index] = item; else state.savingsGoals.push(item);
+  saveState(); clearGoalForm(); renderAll();
+});
+$("cancelGoalEdit").addEventListener("click", clearGoalForm);
 $("saveEducation").addEventListener("click", () => {
-  state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value) };
+  state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value), target1: num($("edu1Target").value), target2: num($("edu2Target").value), target3: num($("edu3Target").value) };
   saveState(); renderAll(); alert("教育資金を保存しました");
 });
 $("saveBaseButton").addEventListener("click", () => {
-  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
+  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "7.0-third-c", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "7.0-third-d", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {

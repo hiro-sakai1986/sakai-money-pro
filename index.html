@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 7.0 第三弾C</title>
+  <title>サカイ家 MONEY Pro 7.0 第三弾D</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">7.0 第三弾C｜チャーリー分析</p>
+      <p class="subtitle">7.0 第三弾D｜未来資金プラン</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -173,21 +173,61 @@
     </section>
 
     <section id="educationScreen" class="screen">
+      <h2>住宅ローン</h2>
+      <article class="card form-card">
+        <div class="form-grid">
+          <label>ローン残高（円）<input id="mortgageBalance" type="number" min="0" inputmode="numeric"></label>
+          <label>金利（％）<input id="mortgageRate" type="number" min="0" step="0.01" inputmode="decimal"></label>
+          <label>毎月返済額（円）<input id="mortgageMonthly" type="number" min="0" inputmode="numeric"></label>
+          <label>ボーナス返済・年額（円）<input id="mortgageBonus" type="number" min="0" inputmode="numeric"></label>
+          <label>完済予定年<input id="mortgageEndYear" type="number" min="2026" max="2100" inputmode="numeric"></label>
+          <label>繰上返済予定額（円）<input id="mortgageExtra" type="number" min="0" inputmode="numeric"></label>
+        </div>
+        <button class="primary" id="saveMortgageButton">住宅ローンを保存</button>
+      </article>
+      <div class="summary-grid">
+        <article class="card metric-card"><span>年間返済額</span><strong id="mortgageAnnualSummary">¥0</strong></article>
+        <article class="card metric-card"><span>完済まで</span><strong id="mortgageYearsSummary">—</strong></article>
+        <article class="card metric-card"><span>概算利息</span><strong id="mortgageInterestSummary">¥0</strong></article>
+        <article class="card metric-card"><span>繰上返済後残高</span><strong id="mortgageAfterExtraSummary">¥0</strong></article>
+      </div>
+
       <h2>教育資金</h2>
       <article class="card form-card">
         <div class="form-grid">
-          <label>長女の教育資金（円）<input id="edu1" type="number" min="0"></label>
-          <label>次女の教育資金（円）<input id="edu2" type="number" min="0"></label>
-          <label>三女の教育資金（円）<input id="edu3" type="number" min="0"></label>
-          <label>毎月の教育積立（円）<input id="eduMonthly" type="number" min="0"></label>
+          <label>長女の現在額（円）<input id="edu1" type="number" min="0"></label>
+          <label>長女の目標額（円）<input id="edu1Target" type="number" min="0"></label>
+          <label>次女の現在額（円）<input id="edu2" type="number" min="0"></label>
+          <label>次女の目標額（円）<input id="edu2Target" type="number" min="0"></label>
+          <label>三女の現在額（円）<input id="edu3" type="number" min="0"></label>
+          <label>三女の目標額（円）<input id="edu3Target" type="number" min="0"></label>
+          <label class="full">毎月の教育積立（円）<input id="eduMonthly" type="number" min="0"></label>
         </div>
         <button class="primary" id="saveEducation">教育資金を保存</button>
       </article>
+      <div id="educationProgressList" class="stack"></div>
+
+      <h2>目的別積立</h2>
+      <article class="card form-card">
+        <input id="goalId" type="hidden">
+        <div class="form-grid">
+          <label>分類<select id="goalCategory"><option>車</option><option>旅行</option><option>住宅修繕</option><option>教育</option><option>家電</option><option>その他</option></select></label>
+          <label>名称<input id="goalName" placeholder="例：セレナ買い替え"></label>
+          <label>現在額（円）<input id="goalCurrent" type="number" min="0" inputmode="numeric"></label>
+          <label>目標額（円）<input id="goalTarget" type="number" min="0" inputmode="numeric"></label>
+          <label>毎月積立（円）<input id="goalMonthly" type="number" min="0" inputmode="numeric"></label>
+          <label>目標日<input id="goalDeadline" type="date"></label>
+        </div>
+        <div class="button-row"><button class="primary" id="saveGoalButton">積立目標を追加</button><button class="secondary hidden" id="cancelGoalEdit">編集を取消</button></div>
+      </article>
+      <div id="savingsGoalList" class="stack"></div>
+
+      <h2>未来資金のまとめ</h2>
       <div class="summary-grid">
-        <article class="card metric-card"><span>長女</span><strong id="edu1Summary">¥0</strong></article>
-        <article class="card metric-card"><span>次女</span><strong id="edu2Summary">¥0</strong></article>
-        <article class="card metric-card"><span>三女</span><strong id="edu3Summary">¥0</strong></article>
-        <article class="card metric-card"><span>教育資金合計</span><strong id="eduTotalSummary">¥0</strong></article>
+        <article class="card metric-card"><span>目標額合計</span><strong id="goalsTargetTotal">¥0</strong></article>
+        <article class="card metric-card"><span>現在額合計</span><strong id="goalsCurrentTotal">¥0</strong></article>
+        <article class="card metric-card"><span>毎月積立合計</span><strong id="goalsMonthlyTotal">¥0</strong></article>
+        <article class="card metric-card"><span>全体達成率</span><strong id="goalsRateTotal">0%</strong></article>
       </div>
 
       <h2>家族のライフイベント</h2>
@@ -228,7 +268,7 @@
     <button class="nav-button active" data-screen="homeScreen"><span>⌂</span>ホーム</button>
     <button class="nav-button" data-screen="budgetScreen"><span>¥</span>家計</button>
     <button class="nav-button" data-screen="investScreen"><span>↗</span>投資</button>
-    <button class="nav-button" data-screen="educationScreen"><span>♧</span>教育</button>
+    <button class="nav-button" data-screen="educationScreen"><span>◎</span>未来</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
   <script src="./app.js"></script>

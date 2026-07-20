@@ -1,15 +1,10 @@
-サカイ家 MONEY Pro 7.0 第一弾 更新手順
+サカイ家 MONEY Pro 7.0 第三弾D 更新手順
 
 1. このZIPを「すべて展開」します。
-2. 展開したフォルダ内のファイルをすべて選択します（Ctrl + A）。
-3. コピーします（Ctrl + C）。
-4. GitHub Desktopを開き、Current branch が v6-first-release になっていることを確認します。
-5. Show in Explorer を押します。
-6. 開いた sakai-money-pro フォルダ内へ貼り付けます（Ctrl + V）。
-7. 同名ファイルは「すべて置き換える」を選びます。
-8. GitHub DesktopのSummaryに「MONEY Pro 7.0 第一弾」と入力します。
-9. Commit to v6-first-release を押します。
-10. Push origin を押します。
-11. 2〜5分後、iPhoneのSafariでサイトを更新します。
+2. 展開したフォルダ内のファイルをすべて選択します。
+3. ドキュメント > GitHub > sakai-money-pro に貼り付け、同名ファイルを置き換えます。
+4. GitHub DesktopのSummaryに「MONEY Pro 7.0 第三弾D」と入力します。
+5. Commitし、Push originが表示されたら押します。
+6. 数分後、iPhoneのアプリを閉じて開き直します。
 
-注意：更新前にアプリの設定画面からバックアップを書き出すと安心です。
+第三弾Cまでのブラウザ保存データは自動で引き継ぎます。
