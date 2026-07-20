@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 7.0 第三弾B</title>
+  <title>サカイ家 MONEY Pro 7.0 第三弾C</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">7.0 第三弾B｜投資分析</p>
+      <p class="subtitle">7.0 第三弾C｜チャーリー分析</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -35,6 +35,16 @@
         <article class="card metric-card"><span>今月収支</span><strong id="monthlyBalance">¥0</strong></article>
         <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
+
+      <h2>チャーリーからひとこと</h2>
+      <article class="card charlie-card">
+        <div class="charlie-head">
+          <div class="charlie-avatar">C</div>
+          <div><strong>チャーリー分析</strong><small>入力データを端末内でチェック</small></div>
+          <button class="secondary charlie-refresh" id="refreshAdviceButton">更新</button>
+        </div>
+        <div id="charlieAdvice" class="advice-list"></div>
+      </article>
 
       <h2>資産ダッシュボード</h2>
       <div class="dashboard-grid">
@@ -179,6 +189,19 @@
         <article class="card metric-card"><span>三女</span><strong id="edu3Summary">¥0</strong></article>
         <article class="card metric-card"><span>教育資金合計</span><strong id="eduTotalSummary">¥0</strong></article>
       </div>
+
+      <h2>家族のライフイベント</h2>
+      <article class="card form-card">
+        <input id="eventId" type="hidden">
+        <div class="form-grid">
+          <label>年<input id="eventYear" type="number" min="2026" max="2100" inputmode="numeric" placeholder="2035"></label>
+          <label>家族<select id="eventPerson"><option>家族</option><option>長女</option><option>次女</option><option>三女</option><option>夫</option><option>ヒロ</option></select></label>
+          <label class="full">予定・出来事<input id="eventTitle" placeholder="例：長女 高校卒業"></label>
+          <label class="full">予定費用（円）<input id="eventCost" type="number" min="0" inputmode="numeric" placeholder="任意"></label>
+        </div>
+        <div class="button-row"><button class="primary" id="saveEventButton">予定を追加</button><button class="secondary hidden" id="cancelEventEdit">編集を取消</button></div>
+      </article>
+      <div id="lifeEventList" class="timeline"></div>
     </section>
 
     <section id="settingsScreen" class="screen">

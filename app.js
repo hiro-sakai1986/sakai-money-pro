@@ -1,7 +1,8 @@
 "use strict";
 
-const STORAGE_KEY = "sakaiMoneyPro7ThirdB";
+const STORAGE_KEY = "sakaiMoneyPro7ThirdC";
 const LEGACY_KEYS = [
+  "sakaiMoneyPro7ThirdB",
   "sakaiMoneyPro7ThirdA",
   "sakaiMoneyPro7SecondRelease",
   "sakaiMoneyPro7FirstRelease",
@@ -18,7 +19,18 @@ const defaultState = {
   plans: [],
   transactions: [],
   education: { child1: 0, child2: 0, child3: 0, monthly: 0 },
-  snapshots: []
+  snapshots: [],
+  lifeEvents: [
+    { id: "default-2029", year: 2029, person: "長女", title: "小学校卒業・中学校入学", cost: 0 },
+    { id: "default-2031", year: 2031, person: "次女", title: "小学校卒業・中学校入学", cost: 0 },
+    { id: "default-2032", year: 2032, person: "長女", title: "中学校卒業・高校入学", cost: 0 },
+    { id: "default-2034a", year: 2034, person: "次女", title: "中学校卒業・高校入学", cost: 0 },
+    { id: "default-2034b", year: 2034, person: "三女", title: "小学校卒業・中学校入学", cost: 0 },
+    { id: "default-2035", year: 2035, person: "長女", title: "高校卒業", cost: 0 },
+    { id: "default-2037a", year: 2037, person: "次女", title: "高校卒業", cost: 0 },
+    { id: "default-2037b", year: 2037, person: "三女", title: "中学校卒業・高校入学", cost: 0 },
+    { id: "default-2040", year: 2040, person: "三女", title: "高校卒業", cost: 0 }
+  ]
 };
 
 let state = loadState();
@@ -43,6 +55,7 @@ function normalize(raw) {
   s.plans = Array.isArray(s.plans) ? s.plans : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.snapshots = Array.isArray(s.snapshots) ? s.snapshots : [];
+  s.lifeEvents = Array.isArray(s.lifeEvents) ? s.lifeEvents : clone(defaultState.lifeEvents);
   s.education = { ...defaultState.education, ...(s.education || {}) };
   s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
   return s;
@@ -130,6 +143,34 @@ function renderGreeting() {
   const h = new Date().getHours();
   $("greeting").textContent = `${h < 11 ? "おはよう" : h < 18 ? "こんにちは" : "こんばんは"}、ヒロ`;
 }
+function charlieAdviceItems() {
+  const items = [];
+  const inv = investmentTotals(), budget = budgetTotals(), financial = financialAssets();
+  const balance = budget.income - budget.expense;
+  if (!state.transactions.length) items.push({ icon: "✍️", tone: "neutral", text: "家計を入力すると、今月の使い方をもっと詳しく分析できます。" });
+  else if (balance >= 0) items.push({ icon: "◎", tone: "good", text: `今月は${yen(balance)}の黒字です。この調子で無理なく続けましょう。` });
+  else items.push({ icon: "!", tone: "warn", text: `今月は${yen(Math.abs(balance))}の赤字です。支出の大きい項目を一度確認してみましょう。` });
+
+  if (state.assets.length) {
+    const ranked = state.assets.map(a => ({ a, market: assetMetrics(a).market })).sort((x,y)=>y.market-x.market);
+    const top = ranked[0], ratio = inv.market ? top.market / inv.market * 100 : 0;
+    if (ratio >= 40) items.push({ icon: "⚖", tone: "warn", text: `${top.a.name}が投資評価額の約${ratio.toFixed(0)}%です。値動きの影響が大きい配分になっています。` });
+    else if (inv.profit >= 0) items.push({ icon: "↗", tone: "good", text: `投資全体は${yen(inv.profit)}のプラスです。短期の変動に慌てず、計画を優先しましょう。` });
+    else items.push({ icon: "↘", tone: "neutral", text: `投資全体は${yen(Math.abs(inv.profit))}の含み損です。生活資金と分けて長期目線で確認しましょう。` });
+  } else items.push({ icon: "↗", tone: "neutral", text: "保有資産を登録すると、銘柄の偏りや投資損益を分析できます。" });
+
+  const goal = num(state.assetGoal), rate = goal ? financial / goal * 100 : 0;
+  if (goal && rate >= 100) items.push({ icon: "★", tone: "good", text: `資産目標${yen(goal)}を達成しています。次の目標を設定してもよさそうです。` });
+  else if (goal) items.push({ icon: "●", tone: "neutral", text: `資産目標まであと${yen(Math.max(0, goal-financial))}、達成率は${rate.toFixed(1)}%です。` });
+
+  const next = [...state.lifeEvents].filter(e => Number(e.year) >= new Date().getFullYear()).sort((a,b)=>Number(a.year)-Number(b.year))[0];
+  if (next) items.push({ icon: "○", tone: "neutral", text: `次の予定は${next.year}年「${next.person}・${next.title}」です${num(next.cost) ? `。予定費用は${yen(next.cost)}です` : ""}。` });
+  return items.slice(0,4);
+}
+function renderCharlieAdvice() {
+  const items = charlieAdviceItems();
+  $("charlieAdvice").innerHTML = items.map(x => `<div class="advice-item ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
+}
 function renderHome() {
   recordSnapshot();
   const inv = investmentTotals(), budget = budgetTotals();
@@ -161,6 +202,7 @@ function renderHome() {
 
   drawAllocation();
   drawTrend();
+  renderCharlieAdvice();
 }
 function setChangeMetric(valueId, subId, value, label) {
   const el = $(valueId);
@@ -342,6 +384,14 @@ function renderDividendCalendar() {
   }
   $("dividendCalendar").innerHTML = months.map(m => `<div class="month-cell"><span>${m.month}月</span><strong>${yen(m.amount)}</strong><small>${escapeHtml([...new Set(m.names)].join("・"))}</small></div>`).join("");
 }
+function renderLifeEvents() {
+  const list = [...state.lifeEvents].sort((a,b) => Number(a.year)-Number(b.year) || String(a.title).localeCompare(String(b.title), "ja"));
+  $("lifeEventList").innerHTML = list.length ? list.map(e => `<article class="timeline-item"><div class="timeline-year">${escapeHtml(e.year)}</div><div class="timeline-dot"></div><div class="timeline-card"><div><strong>${escapeHtml(e.person)}｜${escapeHtml(e.title)}</strong><small>${num(e.cost) ? `予定費用 ${yen(e.cost)}` : "費用未設定"}</small></div><div class="item-actions"><button class="edit-button" data-edit-event="${e.id}">編集</button><button class="delete-button" data-delete-event="${e.id}">削除</button></div></div></article>`).join("") : `<div class="empty">予定はまだありません。</div>`;
+}
+function clearEventForm() {
+  $("eventId").value = ""; $("eventYear").value = ""; $("eventTitle").value = ""; $("eventCost").value = ""; $("eventPerson").value = "家族";
+  $("saveEventButton").textContent = "予定を追加"; $("cancelEventEdit").classList.add("hidden");
+}
 function renderEducation() {
   const e = state.education;
   $("edu1").value = e.child1 || ""; $("edu2").value = e.child2 || ""; $("edu3").value = e.child3 || ""; $("eduMonthly").value = e.monthly || "";
@@ -350,7 +400,7 @@ function renderEducation() {
 }
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
-  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderEducation();
+  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderEducation(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearAssetForm() {
@@ -396,6 +446,15 @@ document.addEventListener("click", e => {
       $("savePlanButton").textContent = "変更を保存"; $("cancelPlanEdit").classList.remove("hidden"); $("planFormWrap").scrollIntoView({ behavior: "smooth" });
     }
   }
+  if (d.editEvent) {
+    const item = state.lifeEvents.find(x => x.id === d.editEvent); if (item) {
+      $("eventId").value = item.id; $("eventYear").value = item.year; $("eventPerson").value = item.person || "家族"; $("eventTitle").value = item.title; $("eventCost").value = item.cost || "";
+      $("saveEventButton").textContent = "予定を更新"; $("cancelEventEdit").classList.remove("hidden"); $("eventYear").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+  if (d.deleteEvent && confirm("この予定を削除しますか？")) {
+    state.lifeEvents = state.lifeEvents.filter(x => x.id !== d.deleteEvent); saveState(); renderAll();
+  }
 });
 $("cancelAssetEdit").addEventListener("click", clearAssetForm);
 $("cancelPlanEdit").addEventListener("click", clearPlanForm);
@@ -414,6 +473,17 @@ document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click"
 }));
 ["assetSearch", "assetFilter", "assetSort"].forEach(id => $(id).addEventListener("input", renderAssets));
 ["txSearch", "txMonth"].forEach(id => $(id).addEventListener("input", renderTransactions));
+$("refreshAdviceButton").addEventListener("click", () => { renderCharlieAdvice(); $("refreshAdviceButton").textContent = "更新済み"; setTimeout(() => $("refreshAdviceButton").textContent = "更新", 900); });
+$("saveEventButton").addEventListener("click", () => {
+  const year = Number($("eventYear").value), title = $("eventTitle").value.trim();
+  if (!year || !title) return alert("年と予定・出来事を入力してください");
+  const id = $("eventId").value || uid();
+  const item = { id, year, person: $("eventPerson").value, title, cost: num($("eventCost").value) };
+  const index = state.lifeEvents.findIndex(e => e.id === id);
+  if (index >= 0) state.lifeEvents[index] = item; else state.lifeEvents.push(item);
+  saveState(); clearEventForm(); renderAll();
+});
+$("cancelEventEdit").addEventListener("click", clearEventForm);
 $("saveEducation").addEventListener("click", () => {
   state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value) };
   saveState(); renderAll(); alert("教育資金を保存しました");
@@ -424,7 +494,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "7.0-third-b", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "7.0-third-c", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
