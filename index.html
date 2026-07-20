@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f4f4f7">
+  <meta name="theme-color" content="#f5f4f7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 6.1</title>
+  <title>サカイ家 MONEY Pro 7.0</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">おはよう、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">6.1 復旧版｜ホーム・投資管理</p>
+      <p class="subtitle">7.0 第一弾｜家計・資産・教育費</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -24,31 +24,58 @@
   <main>
     <section id="homeScreen" class="screen active">
       <article class="hero-card">
-        <span>家族の金融資産</span>
-        <strong id="totalFinancial">¥0</strong>
-        <small id="totalProfit">評価損益 ¥0</small>
+        <span>純資産</span>
+        <strong id="netWorth">¥0</strong>
+        <small id="netWorthSub">金融資産 ¥0 − ローン ¥0</small>
       </article>
 
       <div class="summary-grid">
         <article class="card metric-card"><span>預金</span><strong id="cashSummary">¥0</strong></article>
         <article class="card metric-card"><span>投資評価額</span><strong id="investmentSummary">¥0</strong></article>
-        <article class="card metric-card"><span>本人の投資</span><strong id="hiroSummary">¥0</strong></article>
-        <article class="card metric-card"><span>夫の投資</span><strong id="husbandSummary">¥0</strong></article>
+        <article class="card metric-card"><span>今月収支</span><strong id="monthlyBalance">¥0</strong></article>
+        <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
 
-      <h2>基本情報</h2>
-      <article class="card form-card">
-        <label>預金残高（円）<input id="cashInput" type="number" min="0" inputmode="numeric"></label>
-        <button class="primary" id="saveCashButton">預金を保存</button>
+      <h2>今月の状況</h2>
+      <article class="card">
+        <div class="split-row"><span>収入</span><strong id="incomeSummary">¥0</strong></div>
+        <div class="split-row"><span>支出</span><strong id="expenseSummary">¥0</strong></div>
+        <div class="split-row"><span>年間配当</span><strong id="dividendSummary">¥0</strong></div>
+        <div class="split-row"><span>投資損益</span><strong id="profitSummary">¥0</strong></div>
       </article>
 
-      <h2>投資の内訳</h2>
-      <article class="card">
-        <div class="split-row"><span>本人</span><strong id="hiroBreakdown">¥0</strong></div>
-        <div class="split-row"><span>夫</span><strong id="husbandBreakdown">¥0</strong></div>
-        <div class="split-row"><span>毎月の積立合計</span><strong id="monthlyTotal">¥0</strong></div>
-        <div class="split-row"><span>年間配当合計</span><strong id="dividendTotal">¥0</strong></div>
+      <h2>家族の教育資金</h2>
+      <div id="educationSummary" class="stack"></div>
+
+      <h2>資産メモ</h2>
+      <article class="card form-card">
+        <label>預金残高（円）<input id="cashInput" type="number" min="0" inputmode="numeric"></label>
+        <label>住宅ローン残高（円）<input id="loanInput" type="number" min="0" inputmode="numeric"></label>
+        <button class="primary" id="saveBasicsButton">基本情報を保存</button>
       </article>
+    </section>
+
+    <section id="budgetScreen" class="screen">
+      <div class="screen-head">
+        <div><h2>家計簿</h2><p>月ごとの収入・支出を記録</p></div>
+        <input id="budgetMonth" type="month" aria-label="対象月">
+      </div>
+      <article class="card form-card">
+        <div class="form-grid">
+          <label>種類<select id="entryType"><option value="income">収入</option><option value="expense">支出</option></select></label>
+          <label>カテゴリ<select id="entryCategory"></select></label>
+          <label>金額（円）<input id="entryAmount" type="number" min="0" inputmode="numeric"></label>
+          <label>日付<input id="entryDate" type="date"></label>
+          <label class="wide">内容<input id="entryMemo" placeholder="例：食費、給料、学用品"></label>
+        </div>
+        <button class="primary" id="addEntryButton">記録を追加</button>
+      </article>
+      <article class="card budget-totals">
+        <div><span>収入</span><strong id="budgetIncome">¥0</strong></div>
+        <div><span>支出</span><strong id="budgetExpense">¥0</strong></div>
+        <div><span>収支</span><strong id="budgetBalance">¥0</strong></div>
+      </article>
+      <div id="entryList" class="stack"></div>
     </section>
 
     <section id="investScreen" class="screen">
@@ -56,7 +83,6 @@
         <button class="owner-tab active" data-owner="本人">本人</button>
         <button class="owner-tab" data-owner="夫">夫</button>
       </div>
-
       <h2>保有資産</h2>
       <article class="card form-card" id="assetFormCard">
         <label>検索<input id="assetSearch" placeholder="銘柄名・区分で検索"></label>
@@ -89,27 +115,37 @@
       <div id="planList" class="stack"></div>
     </section>
 
+    <section id="educationScreen" class="screen">
+      <h2>教育資金</h2>
+      <p class="section-note">3人それぞれの現在額と目標額を管理します。</p>
+      <div id="educationList" class="stack"></div>
+    </section>
+
     <section id="settingsScreen" class="screen">
       <h2>データ管理</h2>
       <article class="card settings-actions">
         <button class="secondary" id="exportButton">バックアップを書き出す</button>
         <label class="file-button">バックアップを読み込む<input id="importInput" type="file" accept="application/json"></label>
-        <button class="secondary" id="clearOldLockButton">古いパスワード情報を削除</button>
         <button class="danger" id="resetButton">すべてのデータを初期化</button>
       </article>
       <article class="card note">
         <strong>保存について</strong>
-        <p>入力内容は、この端末のブラウザ内に保存されます。6.1復旧版は、古いパスワード情報を自動削除し、必ず開けることを優先しています。</p>
+        <p>入力内容はこの端末のブラウザ内に保存されます。機種変更前や大きな更新前にはバックアップを書き出してください。</p>
+      </article>
+      <article class="card note">
+        <strong>7.0 第一弾</strong>
+        <p>家計簿、夫婦別投資、教育資金、預金・ローン、バックアップをひとつにまとめた安定版です。パスワードロックは正常動作を優先して未搭載です。</p>
       </article>
     </section>
   </main>
 
   <nav class="bottom-nav">
     <button class="nav-button active" data-screen="homeScreen"><span>⌂</span>ホーム</button>
+    <button class="nav-button" data-screen="budgetScreen"><span>¥</span>家計</button>
     <button class="nav-button" data-screen="investScreen"><span>↗</span>投資</button>
+    <button class="nav-button" data-screen="educationScreen"><span>♧</span>教育</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-
   <script src="./app.js"></script>
 </body>
 </html>
