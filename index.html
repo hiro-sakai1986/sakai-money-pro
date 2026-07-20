@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f5f4f7">
+  <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 7.0</title>
+  <title>サカイ家 MONEY Pro 7.0 第二弾</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -14,9 +14,9 @@
 <body>
   <header class="topbar">
     <div>
-      <p class="eyebrow" id="greeting">おはよう、ヒロ</p>
+      <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">7.0 第一弾｜家計・資産・教育費</p>
+      <p class="subtitle">7.0 第二弾｜投資・資産管理</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -38,104 +38,126 @@
 
       <h2>今月の状況</h2>
       <article class="card">
-        <div class="split-row"><span>収入</span><strong id="incomeSummary">¥0</strong></div>
-        <div class="split-row"><span>支出</span><strong id="expenseSummary">¥0</strong></div>
-        <div class="split-row"><span>年間配当</span><strong id="dividendSummary">¥0</strong></div>
-        <div class="split-row"><span>投資損益</span><strong id="profitSummary">¥0</strong></div>
+        <div class="split-row"><span>収入</span><strong id="incomeTotal">¥0</strong></div>
+        <div class="split-row"><span>支出</span><strong id="expenseTotal">¥0</strong></div>
+        <div class="split-row"><span>年間配当</span><strong id="dividendTotal">¥0</strong></div>
+        <div class="split-row"><span>投資損益</span><strong id="profitTotal">¥0</strong></div>
       </article>
 
-      <h2>家族の教育資金</h2>
-      <div id="educationSummary" class="stack"></div>
-
-      <h2>資産メモ</h2>
-      <article class="card form-card">
-        <label>預金残高（円）<input id="cashInput" type="number" min="0" inputmode="numeric"></label>
-        <label>住宅ローン残高（円）<input id="loanInput" type="number" min="0" inputmode="numeric"></label>
-        <button class="primary" id="saveBasicsButton">基本情報を保存</button>
+      <h2>資産配分</h2>
+      <article class="card chart-card">
+        <canvas id="allocationChart" width="320" height="220" aria-label="資産配分グラフ"></canvas>
+        <div id="allocationLegend" class="legend"></div>
       </article>
     </section>
 
     <section id="budgetScreen" class="screen">
-      <div class="screen-head">
-        <div><h2>家計簿</h2><p>月ごとの収入・支出を記録</p></div>
-        <input id="budgetMonth" type="month" aria-label="対象月">
-      </div>
+      <h2>家計を記録</h2>
       <article class="card form-card">
         <div class="form-grid">
-          <label>種類<select id="entryType"><option value="income">収入</option><option value="expense">支出</option></select></label>
-          <label>カテゴリ<select id="entryCategory"></select></label>
-          <label>金額（円）<input id="entryAmount" type="number" min="0" inputmode="numeric"></label>
-          <label>日付<input id="entryDate" type="date"></label>
-          <label class="wide">内容<input id="entryMemo" placeholder="例：食費、給料、学用品"></label>
+          <label>日付<input id="txDate" type="date"></label>
+          <label>区分<select id="txKind"><option value="income">収入</option><option value="expense">支出</option></select></label>
+          <label>カテゴリ<input id="txCategory" placeholder="給与・食費・日用品など"></label>
+          <label>金額（円）<input id="txAmount" type="number" min="0" inputmode="numeric"></label>
+          <label class="full">メモ<input id="txMemo" placeholder="任意"></label>
         </div>
-        <button class="primary" id="addEntryButton">記録を追加</button>
+        <button class="primary" id="addTxButton">家計を追加</button>
       </article>
-      <article class="card budget-totals">
-        <div><span>収入</span><strong id="budgetIncome">¥0</strong></div>
-        <div><span>支出</span><strong id="budgetExpense">¥0</strong></div>
-        <div><span>収支</span><strong id="budgetBalance">¥0</strong></div>
-      </article>
-      <div id="entryList" class="stack"></div>
+      <div class="toolbar"><input id="txSearch" placeholder="家計を検索"><select id="txMonth"></select></div>
+      <div id="txList" class="stack"></div>
     </section>
 
     <section id="investScreen" class="screen">
-      <div class="segmented" role="tablist">
+      <div class="segmented three" role="tablist">
         <button class="owner-tab active" data-owner="本人">本人</button>
         <button class="owner-tab" data-owner="夫">夫</button>
+        <button class="owner-tab" data-owner="家族合計">家族合計</button>
       </div>
-      <h2>保有資産</h2>
-      <article class="card form-card" id="assetFormCard">
-        <label>検索<input id="assetSearch" placeholder="銘柄名・区分で検索"></label>
-        <div class="form-grid">
-          <label>銘柄・商品名<input id="assetName" placeholder="例：任天堂"></label>
-          <label>区分<select id="assetType"><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></label>
-          <label>口座<select id="assetAccount"><option>NISA</option><option>特定口座</option><option>一般口座</option></select></label>
-          <label>入力日<input id="assetDate" type="date"></label>
-          <label>保有数<input id="assetQuantity" type="number" min="0" step="0.0001" inputmode="decimal"></label>
-          <label>取得単価（円）<input id="assetCost" type="number" min="0" step="0.01" inputmode="decimal"></label>
-          <label>現在価格（円）<input id="assetPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
-          <label>年間配当（円）<input id="assetDividend" type="number" min="0" step="1" inputmode="numeric"></label>
-        </div>
-        <button class="primary" id="addAssetButton">保有資産を追加</button>
-        <button class="secondary" id="cancelAssetEdit" hidden>編集をキャンセル</button>
-      </article>
+
+      <div class="owner-summary-grid">
+        <article class="mini-card"><span>評価額</span><strong id="ownerMarket">¥0</strong></article>
+        <article class="mini-card"><span>損益</span><strong id="ownerProfit">¥0</strong></article>
+        <article class="mini-card"><span>年間配当</span><strong id="ownerDividend">¥0</strong></article>
+      </div>
+
+      <div id="assetFormWrap">
+        <h2>保有資産を登録</h2>
+        <article class="card form-card">
+          <input id="assetId" type="hidden">
+          <div class="form-grid">
+            <label>銘柄・商品名<input id="assetName" placeholder="例：任天堂"></label>
+            <label>区分<select id="assetType"><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></label>
+            <label>証券会社<input id="assetBroker" placeholder="大和証券・SBI証券など"></label>
+            <label>口座<select id="assetAccount"><option>NISA</option><option>特定口座</option><option>一般口座</option></select></label>
+            <label>入力日<input id="assetDate" type="date"></label>
+            <label>保有数<input id="assetQuantity" type="number" min="0" step="0.0001" inputmode="decimal"></label>
+            <label>取得単価（円）<input id="assetCost" type="number" min="0" step="0.01" inputmode="decimal"></label>
+            <label>現在価格（円）<input id="assetPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
+            <label>年間配当（円）<input id="assetDividend" type="number" min="0" step="1" inputmode="numeric"></label>
+            <label>配当月<input id="assetDividendMonths" placeholder="例：3,6,9,12"></label>
+          </div>
+          <div class="button-row"><button class="primary" id="saveAssetButton">保有資産を追加</button><button class="secondary hidden" id="cancelAssetEdit">編集を取消</button></div>
+        </article>
+      </div>
+      <div class="toolbar"><input id="assetSearch" placeholder="銘柄を検索"><select id="assetFilter"><option value="all">すべて</option><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></div>
       <div id="assetList" class="stack"></div>
 
-      <h2>積立・NISA</h2>
-      <article class="card form-card" id="planFormCard">
-        <div class="form-grid">
-          <label>商品名<input id="planName" placeholder="例：S&P500"></label>
-          <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
-          <label>購入開始日<input id="planStart" type="date"></label>
-          <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
-        </div>
-        <button class="primary" id="addPlanButton">積立を追加</button>
-        <button class="secondary" id="cancelPlanEdit" hidden>編集をキャンセル</button>
-      </article>
+      <div id="planFormWrap">
+        <h2>積立・NISA</h2>
+        <article class="card form-card">
+          <input id="planId" type="hidden">
+          <div class="form-grid">
+            <label>商品名<input id="planName" placeholder="例：S&P500"></label>
+            <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
+            <label>購入開始日<input id="planStart" type="date"></label>
+            <label>証券会社<input id="planBroker" placeholder="大和証券・SBI証券など"></label>
+            <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
+            <label>現在評価額（円）<input id="planValue" type="number" min="0" inputmode="numeric"></label>
+          </div>
+          <div class="button-row"><button class="primary" id="savePlanButton">積立を追加</button><button class="secondary hidden" id="cancelPlanEdit">編集を取消</button></div>
+        </article>
+      </div>
       <div id="planList" class="stack"></div>
+
+      <h2>配当カレンダー</h2>
+      <article class="card"><div id="dividendCalendar" class="calendar-grid"></div></article>
     </section>
 
     <section id="educationScreen" class="screen">
       <h2>教育資金</h2>
-      <p class="section-note">3人それぞれの現在額と目標額を管理します。</p>
-      <div id="educationList" class="stack"></div>
+      <article class="card form-card">
+        <div class="form-grid">
+          <label>長女の教育資金（円）<input id="edu1" type="number" min="0"></label>
+          <label>次女の教育資金（円）<input id="edu2" type="number" min="0"></label>
+          <label>三女の教育資金（円）<input id="edu3" type="number" min="0"></label>
+          <label>毎月の教育積立（円）<input id="eduMonthly" type="number" min="0"></label>
+        </div>
+        <button class="primary" id="saveEducation">教育資金を保存</button>
+      </article>
+      <div class="summary-grid">
+        <article class="card metric-card"><span>長女</span><strong id="edu1Summary">¥0</strong></article>
+        <article class="card metric-card"><span>次女</span><strong id="edu2Summary">¥0</strong></article>
+        <article class="card metric-card"><span>三女</span><strong id="edu3Summary">¥0</strong></article>
+        <article class="card metric-card"><span>教育資金合計</span><strong id="eduTotalSummary">¥0</strong></article>
+      </div>
     </section>
 
     <section id="settingsScreen" class="screen">
+      <h2>基本情報</h2>
+      <article class="card form-card">
+        <div class="form-grid">
+          <label>預金残高（円）<input id="cashInput" type="number" min="0"></label>
+          <label>住宅ローン残高（円）<input id="loanInput" type="number" min="0"></label>
+        </div>
+        <button class="primary" id="saveBaseButton">基本情報を保存</button>
+      </article>
       <h2>データ管理</h2>
       <article class="card settings-actions">
         <button class="secondary" id="exportButton">バックアップを書き出す</button>
         <label class="file-button">バックアップを読み込む<input id="importInput" type="file" accept="application/json"></label>
         <button class="danger" id="resetButton">すべてのデータを初期化</button>
       </article>
-      <article class="card note">
-        <strong>保存について</strong>
-        <p>入力内容はこの端末のブラウザ内に保存されます。機種変更前や大きな更新前にはバックアップを書き出してください。</p>
-      </article>
-      <article class="card note">
-        <strong>7.0 第一弾</strong>
-        <p>家計簿、夫婦別投資、教育資金、預金・ローン、バックアップをひとつにまとめた安定版です。パスワードロックは正常動作を優先して未搭載です。</p>
-      </article>
+      <article class="card note"><strong>保存について</strong><p>入力内容はこの端末のブラウザ内に保存されます。大切な入力後は、設定からバックアップを書き出してください。</p></article>
     </section>
   </main>
 
