@@ -23,6 +23,7 @@ const defaultState = {
   assets: [],
   plans: [],
   transactions: [],
+  budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
   mortgage: { balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
   savingsGoals: [
@@ -65,6 +66,8 @@ function normalize(raw) {
   s.assets = Array.isArray(s.assets) ? s.assets : [];
   s.plans = Array.isArray(s.plans) ? s.plans : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
+  s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
+  s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
   s.snapshots = Array.isArray(s.snapshots) ? s.snapshots : [];
   s.lifeEvents = Array.isArray(s.lifeEvents) ? s.lifeEvents : clone(defaultState.lifeEvents);
   s.savingsGoals = Array.isArray(s.savingsGoals) ? s.savingsGoals : clone(defaultState.savingsGoals);
@@ -177,6 +180,26 @@ function budgetTotals(month = monthKey()) {
     s[t.kind] += num(t.amount); return s;
   }, { income: 0, expense: 0 });
 }
+function selectedBudgetMonth() { return $("txMonth")?.value || monthKey(); }
+function budgetLimitFor(month = selectedBudgetMonth()) { return num(state.budgetSettings?.monthlyLimits?.[month]); }
+function categoryExpenseTotals(month = selectedBudgetMonth()) {
+  const grouped = {};
+  for (const t of state.transactions) {
+    if (t.kind !== "expense" || !String(t.date).startsWith(month)) continue;
+    const category = String(t.category || "未分類");
+    grouped[category] = (grouped[category] || 0) + num(t.amount);
+  }
+  return Object.entries(grouped).sort((a, b) => b[1] - a[1]);
+}
+function budgetMonthKeys(anchor = selectedBudgetMonth(), count = 6) {
+  const [year, month] = String(anchor || monthKey()).split("-").map(Number);
+  const keys = [];
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const d = new Date(year, month - 1 - offset, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys;
+}
 function educationTotal() {
   return num(state.education.child1) + num(state.education.child2) + num(state.education.child3);
 }
@@ -231,6 +254,10 @@ function charlieAdviceItems() {
   if (!state.transactions.length) items.push({ icon: "✍️", tone: "neutral", text: "家計を入力すると、今月の使い方をもっと詳しく分析できます。" });
   else if (balance >= 0) items.push({ icon: "◎", tone: "good", text: `今月は${yen(balance)}の黒字です。この調子で無理なく続けましょう。` });
   else items.push({ icon: "!", tone: "warn", text: `今月は${yen(Math.abs(balance))}の赤字です。支出の大きい項目を一度確認してみましょう。` });
+
+  const currentLimit = budgetLimitFor(monthKey());
+  if (currentLimit && budget.expense > currentLimit) items.push({ icon: "⚠", tone: "warn", text: `今月の支出は予算を${yen(budget.expense - currentLimit)}超えています。家計画面で内訳を確認しましょう。` });
+  else if (currentLimit && budget.expense > currentLimit * .85) items.push({ icon: "△", tone: "neutral", text: `今月の支出予算は残り${yen(Math.max(0, currentLimit - budget.expense))}です。` });
 
   if (state.assets.length) {
     const ranked = state.assets.map(a => ({ a, market: assetMetrics(a).market })).sort((x,y)=>y.market-x.market);
@@ -363,14 +390,95 @@ function drawTrend() {
   $("trendNote").textContent = data.length < 2 ? "今月分を記録しました。来月以降、推移が線でつながります。" : `直近${data.length}か月の純資産推移です。`;
 }
 function setupMonthOptions() {
-  const months = new Set(state.transactions.map(t => monthKey(t.date))); months.add(monthKey());
-  $("txMonth").innerHTML = [...months].sort().reverse().map(m => `<option value="${m}">${m}</option>`).join("");
+  const previous = $("txMonth").value;
+  const months = new Set(state.transactions.map(t => monthKey(t.date)));
+  const now = new Date();
+  for (let i = 0; i < 12; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const values = [...months].sort().reverse();
+  $("txMonth").innerHTML = values.map(m => {
+    const [y, mo] = m.split("-");
+    return `<option value="${m}">${y}年${Number(mo)}月</option>`;
+  }).join("");
+  $("txMonth").value = values.includes(previous) ? previous : (values.includes(monthKey()) ? monthKey() : values[0]);
+}
+function renderBudgetDashboard() {
+  const month = selectedBudgetMonth(), totals = budgetTotals(month), balance = totals.income - totals.expense;
+  const monthItems = state.transactions.filter(t => String(t.date).startsWith(month));
+  const incomeCount = monthItems.filter(t => t.kind === "income").length;
+  const expenseCount = monthItems.filter(t => t.kind === "expense").length;
+  const savingsRate = totals.income ? balance / totals.income * 100 : 0;
+  $("budgetIncomeSummary").textContent = yen(totals.income);
+  $("budgetExpenseSummary").textContent = yen(totals.expense);
+  $("budgetBalanceSummary").textContent = yen(balance);
+  $("budgetBalanceSummary").className = balance < 0 ? "negative" : "positive";
+  $("budgetSavingsRate").textContent = `${savingsRate.toFixed(1)}%`;
+  $("budgetSavingsRate").className = savingsRate < 0 ? "negative" : "positive";
+  $("budgetIncomeCount").textContent = `${incomeCount}件`;
+  $("budgetExpenseCount").textContent = `${expenseCount}件`;
+  $("budgetTxCount").textContent = `${monthItems.length}件`;
+
+  const limit = budgetLimitFor(month), remaining = limit - totals.expense;
+  $("budgetLimitInput").value = limit || "";
+  $("budgetLimitLabel").textContent = limit ? yen(limit) : "未設定";
+  $("budgetSpentText").textContent = `支出 ${yen(totals.expense)}`;
+  const usage = limit ? totals.expense / limit * 100 : 0;
+  $("budgetUsageProgress").style.width = `${Math.min(100, usage)}%`;
+  $("budgetUsageProgress").classList.toggle("over", Boolean(limit && totals.expense > limit));
+  $("budgetUsageText").textContent = limit ? `使用率 ${usage.toFixed(1)}%` : "使用率 0%";
+  $("budgetRemainingText").textContent = !limit ? "予算を設定すると使いすぎを確認できます" : remaining >= 0 ? `残り ${yen(remaining)}` : `${yen(Math.abs(remaining))} 予算オーバー`;
+  $("budgetRemainingText").className = limit && remaining < 0 ? "negative" : "";
+
+  renderCategoryBreakdown(month, totals.expense);
+  drawBudgetTrend(month);
+}
+function renderCategoryBreakdown(month, totalExpense) {
+  const items = categoryExpenseTotals(month);
+  $("categoryBreakdown").innerHTML = items.length ? items.map(([name, value], index) => {
+    const rate = totalExpense ? value / totalExpense * 100 : 0;
+    return `<div class="category-row"><div class="category-row-head"><span><i>${index + 1}</i>${escapeHtml(name)}</span><strong>${yen(value)}</strong></div><div class="category-track"><div style="width:${rate}%"></div></div><small>${rate.toFixed(1)}%</small></div>`;
+  }).join("") : `<div class="empty budget-empty">この月の支出を入力すると、カテゴリ別に表示します。</div>`;
+}
+function drawBudgetTrend(anchorMonth = selectedBudgetMonth()) {
+  const canvas = $("budgetTrendChart"); if (!canvas) return;
+  const ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = 260;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  const months = budgetMonthKeys(anchorMonth, 6);
+  const values = months.map(m => ({ month: m, ...budgetTotals(m) }));
+  const max = Math.max(1, ...values.flatMap(v => [v.income, v.expense]));
+  const muted = getComputedStyle(document.body).getPropertyValue("--muted").trim();
+  const line = getComputedStyle(document.body).getPropertyValue("--line").trim();
+  const good = getComputedStyle(document.body).getPropertyValue("--good").trim();
+  const bad = getComputedStyle(document.body).getPropertyValue("--bad").trim();
+  const pad = { left: 45, right: 10, top: 18, bottom: 38 }, chartH = h - pad.top - pad.bottom;
+  ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.font = "10px sans-serif"; ctx.fillStyle = muted; ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + chartH * i / 4, value = max * (1 - i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillText(`${Math.round(value / 10000)}万`, pad.left - 6, y + 3);
+  }
+  const groupW = (w - pad.left - pad.right) / months.length, barW = Math.min(22, groupW * .27);
+  values.forEach((v, i) => {
+    const center = pad.left + groupW * i + groupW / 2;
+    const incomeH = chartH * v.income / max, expenseH = chartH * v.expense / max;
+    ctx.fillStyle = good; ctx.fillRect(center - barW - 2, pad.top + chartH - incomeH, barW, incomeH);
+    ctx.fillStyle = bad; ctx.fillRect(center + 2, pad.top + chartH - expenseH, barW, expenseH);
+    ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.font = "10px sans-serif";
+    ctx.fillText(`${Number(v.month.slice(5))}月`, center, h - 16);
+  });
+  ctx.textAlign = "left"; ctx.font = "11px sans-serif";
+  ctx.fillStyle = good; ctx.fillRect(pad.left, 4, 10, 10); ctx.fillStyle = muted; ctx.fillText("収入", pad.left + 15, 13);
+  ctx.fillStyle = bad; ctx.fillRect(pad.left + 58, 4, 10, 10); ctx.fillStyle = muted; ctx.fillText("支出", pad.left + 73, 13);
 }
 function renderTransactions() {
   setupMonthOptions();
-  const query = $("txSearch").value.trim().toLowerCase(), month = $("txMonth").value || monthKey();
+  const query = $("txSearch").value.trim().toLowerCase(), month = selectedBudgetMonth();
   const list = state.transactions.filter(t => String(t.date).startsWith(month) && `${t.category} ${t.memo}`.toLowerCase().includes(query)).sort((a, b) => b.date.localeCompare(a.date));
-  $("txList").innerHTML = list.length ? list.map(t => `<article class="item-card compact"><div><div class="item-title">${escapeHtml(t.category || "未分類")}</div><div class="item-sub">${escapeHtml(t.date)}${t.memo ? `・${escapeHtml(t.memo)}` : ""}</div></div><div class="tx-right"><strong class="${t.kind === 'expense' ? 'negative' : 'positive'}">${t.kind === 'expense' ? '-' : '+'}${yen(t.amount)}</strong><button class="delete-button" data-delete-tx="${t.id}">削除</button></div></article>`).join("") : `<div class="empty">この月の記録はありません。</div>`;
+  $("txList").innerHTML = list.length ? list.map(t => `<article class="item-card compact transaction-card"><div><div class="item-title">${escapeHtml(t.category || "未分類")}</div><div class="item-sub">${escapeHtml(t.date)}${t.memo ? `・${escapeHtml(t.memo)}` : ""}</div></div><div class="tx-right"><strong class="${t.kind === 'expense' ? 'negative' : 'positive'}">${t.kind === 'expense' ? '-' : '+'}${yen(t.amount)}</strong><div class="tx-actions"><button class="edit-button" data-edit-tx="${t.id}">編集</button><button class="delete-button" data-delete-tx="${t.id}">削除</button></div></div></article>`).join("") : `<div class="empty">この月の記録はありません。</div>`;
+  renderBudgetDashboard();
 }
 function assetDividendYield(a) {
   const m = assetMetrics(a);
@@ -519,6 +627,15 @@ function renderAll() {
   renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
+function clearTxForm() {
+  $("txId").value = "";
+  $("txDate").value = today();
+  $("txKind").value = "expense";
+  ["txCategory", "txAmount", "txMemo"].forEach(id => $(id).value = "");
+  $("addTxButton").textContent = "家計を追加";
+  $("cancelTxEdit").classList.add("hidden");
+  document.querySelectorAll(".quick-category").forEach(button => button.classList.remove("selected"));
+}
 function clearAssetForm() {
   $("assetId").value = ""; ["assetName", "assetBroker", "assetQuantity", "assetCost", "assetPrice", "assetDividend", "assetDividendMonths"].forEach(id => $(id).value = "");
   $("assetDate").value = today(); $("saveAssetButton").textContent = "保有資産を追加"; $("cancelAssetEdit").classList.add("hidden");
@@ -530,8 +647,10 @@ function clearPlanForm() {
 
 $("addTxButton").addEventListener("click", () => {
   const amount = num($("txAmount").value); if (!amount) return alert("金額を入力してください");
-  state.transactions.push({ id: uid(), date: $("txDate").value || today(), kind: $("txKind").value, category: $("txCategory").value.trim() || "未分類", amount, memo: $("txMemo").value.trim() });
-  saveState(); ["txCategory", "txAmount", "txMemo"].forEach(id => $(id).value = ""); renderAll();
+  const id = $("txId").value;
+  const item = { id: id || uid(), date: $("txDate").value || today(), kind: $("txKind").value, category: $("txCategory").value.trim() || "未分類", amount, memo: $("txMemo").value.trim() };
+  if (id) state.transactions = state.transactions.map(t => t.id === id ? item : t); else state.transactions.push(item);
+  saveState(); clearTxForm(); renderAll();
 });
 $("saveAssetButton").addEventListener("click", () => {
   const name = $("assetName").value.trim(); if (!name) return alert("銘柄・商品名を入力してください");
@@ -549,6 +668,12 @@ document.addEventListener("click", e => {
   const d = e.target.dataset;
   if (d.deleteAsset && confirm("この保有資産を削除しますか？")) { state.assets = state.assets.filter(a => a.id !== d.deleteAsset); saveState(); renderAll(); }
   if (d.deletePlan && confirm("この積立を削除しますか？")) { state.plans = state.plans.filter(p => p.id !== d.deletePlan); saveState(); renderAll(); }
+  if (d.editTx) {
+    const t = state.transactions.find(x => x.id === d.editTx); if (t) {
+      $("txId").value = t.id; $("txDate").value = t.date || today(); $("txKind").value = t.kind; $("txCategory").value = t.category || ""; $("txAmount").value = t.amount; $("txMemo").value = t.memo || "";
+      $("addTxButton").textContent = "変更を保存"; $("cancelTxEdit").classList.remove("hidden"); $("txDate").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
   if (d.deleteTx && confirm("この家計記録を削除しますか？")) { state.transactions = state.transactions.filter(t => t.id !== d.deleteTx); saveState(); renderAll(); }
   if (d.editAsset) {
     const a = state.assets.find(x => x.id === d.editAsset); if (a) {
@@ -579,6 +704,19 @@ document.addEventListener("click", e => {
   }
   if (d.deleteGoal && confirm("この積立目標を削除しますか？")) { state.savingsGoals = state.savingsGoals.filter(x => x.id !== d.deleteGoal); saveState(); renderAll(); }
 });
+$("cancelTxEdit").addEventListener("click", clearTxForm);
+document.querySelectorAll(".quick-category").forEach(button => button.addEventListener("click", () => {
+  $("txKind").value = button.dataset.quickKind;
+  $("txCategory").value = button.dataset.quickCategory;
+  document.querySelectorAll(".quick-category").forEach(x => x.classList.toggle("selected", x === button));
+  $("txAmount").focus();
+}));
+$("saveBudgetLimitButton").addEventListener("click", () => {
+  const month = selectedBudgetMonth(), limit = num($("budgetLimitInput").value);
+  if (limit) state.budgetSettings.monthlyLimits[month] = limit; else delete state.budgetSettings.monthlyLimits[month];
+  saveState(); renderTransactions();
+  alert(limit ? `${month.replace("-", "年")}月の予算を保存しました` : "予算設定を解除しました");
+});
 $("cancelAssetEdit").addEventListener("click", clearAssetForm);
 $("cancelPlanEdit").addEventListener("click", clearPlanForm);
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
@@ -593,9 +731,11 @@ document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click"
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
   if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); }, 50);
   if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
+  if (b.dataset.screen === "budgetScreen") setTimeout(() => drawBudgetTrend(selectedBudgetMonth()), 50);
 }));
 ["assetSearch", "assetFilter", "assetSort"].forEach(id => $(id).addEventListener("input", renderAssets));
-["txSearch", "txMonth"].forEach(id => $(id).addEventListener("input", renderTransactions));
+$("txSearch").addEventListener("input", renderTransactions);
+$("txMonth").addEventListener("change", renderTransactions);
 $("refreshAdviceButton").addEventListener("click", () => { renderCharlieAdvice(); $("refreshAdviceButton").textContent = "更新済み"; setTimeout(() => $("refreshAdviceButton").textContent = "更新", 900); });
 $("saveEventButton").addEventListener("click", () => {
   const year = Number($("eventYear").value), title = $("eventTitle").value.trim();
@@ -627,9 +767,9 @@ $("saveBaseButton").addEventListener("click", () => {
   state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
-$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); });
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "7.0-third-d", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -642,7 +782,7 @@ $("resetButton").addEventListener("click", () => {
   if (!confirm("すべての入力データを削除します。よろしいですか？")) return;
   state = clone(defaultState); saveState(); renderAll();
 });
-window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); });
+window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
 $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today();
 recordSnapshot(); saveState(); renderAll();

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Alpha</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Alpha</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -82,18 +82,72 @@
     </section>
 
     <section id="budgetScreen" class="screen">
-      <h2>家計を記録</h2>
-      <article class="card form-card">
+      <div class="budget-topline">
+        <div><p class="screen-kicker">MONTHLY BUDGET</p><h2>家計ダッシュボード</h2></div>
+        <select id="txMonth" class="month-select" aria-label="表示する月"></select>
+      </div>
+
+      <div class="budget-summary-grid">
+        <article class="card budget-summary-card income"><span>収入</span><strong id="budgetIncomeSummary">¥0</strong><small id="budgetIncomeCount">0件</small></article>
+        <article class="card budget-summary-card expense"><span>支出</span><strong id="budgetExpenseSummary">¥0</strong><small id="budgetExpenseCount">0件</small></article>
+        <article class="card budget-summary-card balance"><span>収支</span><strong id="budgetBalanceSummary">¥0</strong><small>収入 − 支出</small></article>
+        <article class="card budget-summary-card rate"><span>貯蓄率</span><strong id="budgetSavingsRate">0.0%</strong><small>収入に対する黒字</small></article>
+      </div>
+
+      <article class="card budget-limit-card">
+        <div class="budget-limit-head">
+          <div><span>今月の支出予算</span><strong id="budgetLimitLabel">未設定</strong></div>
+          <small id="budgetRemainingText">予算を設定すると使いすぎを確認できます</small>
+        </div>
+        <div class="budget-limit-controls">
+          <label>予算額（円）<input id="budgetLimitInput" type="number" min="0" inputmode="numeric" placeholder="例：350000"></label>
+          <button class="secondary" id="saveBudgetLimitButton">予算を保存</button>
+        </div>
+        <div class="progress-track budget-progress-track"><div id="budgetUsageProgress" class="progress-bar"></div></div>
+        <div class="budget-usage-row"><span id="budgetUsageText">使用率 0%</span><span id="budgetSpentText">支出 ¥0</span></div>
+      </article>
+
+      <h2>かんたん入力</h2>
+      <article class="card form-card quick-entry-card">
+        <input id="txId" type="hidden">
+        <div class="quick-category-wrap">
+          <span>よく使う項目</span>
+          <div class="quick-category-grid">
+            <button type="button" class="quick-category income" data-quick-kind="income" data-quick-category="給与">給与</button>
+            <button type="button" class="quick-category income" data-quick-kind="income" data-quick-category="ボーナス">ボーナス</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="食費">食費</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="日用品">日用品</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="教育">教育</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="光熱費">光熱費</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="通信">通信</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="住宅">住宅</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="車">車</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="医療">医療</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="娯楽">娯楽</button>
+            <button type="button" class="quick-category" data-quick-kind="expense" data-quick-category="特別費">特別費</button>
+          </div>
+        </div>
         <div class="form-grid">
           <label>日付<input id="txDate" type="date"></label>
           <label>区分<select id="txKind"><option value="income">収入</option><option value="expense">支出</option></select></label>
-          <label>カテゴリ<input id="txCategory" placeholder="給与・食費・日用品など"></label>
+          <label>カテゴリ<input id="txCategory" list="txCategorySuggestions" placeholder="給与・食費・日用品など"></label>
           <label>金額（円）<input id="txAmount" type="number" min="0" inputmode="numeric"></label>
           <label class="full">メモ<input id="txMemo" placeholder="任意"></label>
         </div>
-        <button class="primary" id="addTxButton">家計を追加</button>
+        <datalist id="txCategorySuggestions"><option value="給与"><option value="ボーナス"><option value="食費"><option value="日用品"><option value="教育"><option value="光熱費"><option value="通信"><option value="住宅"><option value="車"><option value="医療"><option value="娯楽"><option value="特別費"><option value="その他"></datalist>
+        <div class="button-row"><button class="primary" id="addTxButton">家計を追加</button><button class="secondary hidden" id="cancelTxEdit">編集を取消</button></div>
       </article>
-      <div class="toolbar"><input id="txSearch" placeholder="家計を検索"><select id="txMonth"></select></div>
+
+      <h2>6か月の推移</h2>
+      <article class="card chart-card budget-trend-card">
+        <canvas id="budgetTrendChart" width="640" height="260" aria-label="家計6か月推移"></canvas>
+        <p class="chart-note">収入と支出を月ごとに比較します。</p>
+      </article>
+
+      <h2>支出の内訳</h2>
+      <article class="card category-card"><div id="categoryBreakdown" class="category-breakdown"></div></article>
+
+      <div class="toolbar budget-toolbar"><input id="txSearch" placeholder="カテゴリ・メモを検索"><span id="budgetTxCount" class="record-count">0件</span></div>
       <div id="txList" class="stack"></div>
     </section>
 
