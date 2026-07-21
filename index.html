@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 7.0 第三弾D</title>
+  <title>サカイ家 MONEY Pro 8.0 Alpha</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,13 +16,14 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle">7.0 第三弾D｜未来資金プラン</p>
+      <p class="subtitle"><span class="version-pill">8.0 Alpha</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
 
   <main>
     <section id="homeScreen" class="screen active">
+      <div class="status-strip"><span>🔒 データはこの端末内に保存</span><span id="todayLabel"></span></div>
       <article class="hero-card">
         <span>純資産</span>
         <strong id="netWorth">¥0</strong>
@@ -36,7 +37,7 @@
         <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
 
-      <h2>チャーリーからひとこと</h2>
+      <div class="section-heading"><div><p>SMART INSIGHT</p><h2>チャーリーからひとこと</h2></div><span class="live-badge">LIVE</span></div>
       <article class="card charlie-card">
         <div class="charlie-head">
           <div class="charlie-avatar">C</div>
@@ -46,7 +47,7 @@
         <div id="charlieAdvice" class="advice-list"></div>
       </article>
 
-      <h2>資産ダッシュボード</h2>
+      <div class="section-heading"><div><p>OVERVIEW</p><h2>資産ダッシュボード</h2></div></div>
       <div class="dashboard-grid">
         <article class="card dashboard-card"><span>前月比</span><strong id="monthChange">—</strong><small id="monthChangeSub">記録をためると表示</small></article>
         <article class="card dashboard-card"><span>今年の増減</span><strong id="yearChange">—</strong><small id="yearChangeSub">年初との比較</small></article>
@@ -268,7 +269,7 @@
     <button class="nav-button active" data-screen="homeScreen"><span>⌂</span>ホーム</button>
     <button class="nav-button" data-screen="budgetScreen"><span>¥</span>家計</button>
     <button class="nav-button" data-screen="investScreen"><span>↗</span>投資</button>
-    <button class="nav-button" data-screen="educationScreen"><span>◎</span>未来</button>
+    <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
   <script src="./app.js"></script>

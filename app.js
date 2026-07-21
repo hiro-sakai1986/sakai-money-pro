@@ -1,7 +1,8 @@
 "use strict";
 
-const STORAGE_KEY = "sakaiMoneyPro7ThirdD";
+const STORAGE_KEY = "sakaiMoneyPro8Alpha";
 const LEGACY_KEYS = [
+  "sakaiMoneyPro7ThirdD",
   "sakaiMoneyPro7ThirdC",
   "sakaiMoneyPro7ThirdB",
   "sakaiMoneyPro7ThirdA",
@@ -90,6 +91,9 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 function today() { return new Date().toISOString().slice(0, 10); }
+function formatTodayLabel() {
+  return new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(new Date());
+}
 function monthKey(date = today()) { return String(date).slice(0, 7); }
 function monthsSince(dateString) {
   if (!dateString) return 0;
@@ -462,6 +466,7 @@ function clearGoalForm() {
 }
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
+  if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
   renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
