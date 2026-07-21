@@ -7,9 +7,12 @@ const LEGACY_KEYS = [
   "sakaiMoneyPro7ThirdB",
   "sakaiMoneyPro7ThirdA",
   "sakaiMoneyPro7SecondRelease",
+  "sakaiMoneyPro70",
   "sakaiMoneyPro7FirstRelease",
+  "sakaiMoneyPro61",
   "sakaiMoneyPro6FirstRelease",
-  "sakaiMoneyPro6SecondRelease"
+  "sakaiMoneyPro6SecondRelease",
+  "sakaiMoneyPro50"
 ];
 
 const defaultState = {
@@ -71,18 +74,64 @@ function normalize(raw) {
   s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
   return s;
 }
+function hasMeaningfulData(raw) {
+  if (!raw || typeof raw !== "object") return false;
+  const education = raw.education || {};
+  const mortgage = raw.mortgage || {};
+  const goals = Array.isArray(raw.savingsGoals) ? raw.savingsGoals : [];
+  return Boolean(
+    Number(raw.cash) ||
+    Number(raw.loan) ||
+    (Array.isArray(raw.assets) && raw.assets.length) ||
+    (Array.isArray(raw.plans) && raw.plans.length) ||
+    (Array.isArray(raw.transactions) && raw.transactions.length) ||
+    Number(education.child1) ||
+    Number(education.child2) ||
+    Number(education.child3) ||
+    Number(education.monthly) ||
+    Number(education.target1) ||
+    Number(education.target2) ||
+    Number(education.target3) ||
+    Number(mortgage.balance) ||
+    goals.some(goal => Number(goal?.current))
+  );
+}
+
+function localStorageCandidateKeys() {
+  const keys = [...LEGACY_KEYS];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("sakaiMoneyPro") && key !== STORAGE_KEY && !keys.includes(key)) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
 function loadState() {
   try {
-    const own = localStorage.getItem(STORAGE_KEY);
-    if (own) return normalize(JSON.parse(own));
-    for (const key of LEGACY_KEYS) {
-      const old = localStorage.getItem(key);
-      if (old) {
-        const migrated = normalize(JSON.parse(old));
+    const ownText = localStorage.getItem(STORAGE_KEY);
+    const ownRaw = ownText ? JSON.parse(ownText) : null;
+
+    // すでに8.0に実データがある場合は、そのデータを最優先する。
+    if (hasMeaningfulData(ownRaw)) return normalize(ownRaw);
+
+    // 8.0が一度空の状態で保存されていても、旧版の実データを探して復旧する。
+    for (const key of localStorageCandidateKeys()) {
+      const oldText = localStorage.getItem(key);
+      if (!oldText) continue;
+      try {
+        const oldRaw = JSON.parse(oldText);
+        if (!hasMeaningfulData(oldRaw)) continue;
+        const migrated = normalize(oldRaw);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
         return migrated;
+      } catch (error) {
+        console.warn(`旧データ ${key} は読み込めませんでした`, error);
       }
     }
+
+    if (ownRaw) return normalize(ownRaw);
   } catch (e) { console.warn(e); }
   return clone(defaultState);
 }
