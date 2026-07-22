@@ -48,6 +48,7 @@ const defaultState = {
 let state = loadState();
 let currentOwner = "本人";
 let currentRanking = "market";
+let currentInvestmentView = "assets";
 
 const $ = id => document.getElementById(id);
 const yen = value => new Intl.NumberFormat("ja-JP", {
@@ -484,16 +485,29 @@ function assetDividendYield(a) {
   const m = assetMetrics(a);
   return m.invested ? num(a.dividend) / m.invested * 100 : 0;
 }
+function planMetrics(p) {
+  const months = monthsSince(p.start), contributed = months * num(p.monthly);
+  const value = p.value === "" || p.value == null ? contributed : num(p.value);
+  return { months, contributed, value, profit: value - contributed };
+}
 function investmentAnalysis() {
-  const assets = visibleAssets();
+  const assets = visibleAssets(), plans = visiblePlans();
   const totals = assets.reduce((acc, a) => {
     const m = assetMetrics(a);
     acc.market += m.market; acc.invested += m.invested; acc.profit += m.profit; acc.dividend += num(a.dividend);
     return acc;
   }, { market: 0, invested: 0, profit: 0, dividend: 0 });
+  for (const p of plans) {
+    const m = planMetrics(p);
+    totals.market += m.value; totals.invested += m.contributed; totals.profit += m.profit;
+  }
   totals.profitRate = totals.invested ? totals.profit / totals.invested * 100 : 0;
   totals.yieldRate = totals.invested ? totals.dividend / totals.invested * 100 : 0;
-  totals.count = assets.length;
+  totals.assetCount = assets.length;
+  totals.planCount = plans.length;
+  totals.count = assets.length + plans.length;
+  totals.monthlyPlan = plans.reduce((sum, p) => sum + num(p.monthly), 0);
+  totals.missingPrices = assets.filter(a => num(a.quantity) > 0 && num(a.price) <= 0).length;
   return totals;
 }
 function renderInvestmentAnalysis() {
@@ -501,52 +515,95 @@ function renderInvestmentAnalysis() {
   $("analysisInvested").textContent = yen(t.invested);
   $("analysisProfitRate").textContent = `${t.profitRate >= 0 ? "+" : ""}${t.profitRate.toFixed(1)}%`;
   $("analysisProfitRate").className = t.profitRate < 0 ? "negative" : "positive";
-  $("analysisYield").textContent = `${t.yieldRate.toFixed(2)}%`;
-  $("analysisCount").textContent = `${t.count}銘柄`;
+  $("analysisYield").textContent = `利回り ${t.yieldRate.toFixed(2)}%`;
+  $("analysisCount").textContent = `${t.count}商品`;
+  $("assetPlanCountSub").textContent = `資産${t.assetCount}・積立${t.planCount}`;
+  $("investMonthlyPlanSummary").textContent = yen(t.monthlyPlan);
+  $("investAnnualPlanSummary").textContent = `年間 ${yen(t.monthlyPlan * 12)}`;
+  $("missingPriceCount").textContent = `${t.missingPrices}件`;
+  $("missingPriceCount").className = t.missingPrices ? "negative" : "positive";
   drawInvestmentAllocation();
+  renderInvestmentAccountBreakdown();
+  renderInvestmentInsights();
 }
 function drawInvestmentAllocation() {
   const canvas = $("investmentAllocationChart"), ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 640, h = 230;
   canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
-  const colors = ["#9d6b7e", "#c29a6b", "#78958a", "#7c82a3", "#aa7f61"];
+  const colors = ["#8957e5", "#d946a2", "#2f8f71", "#f59e0b", "#64748b", "#0ea5e9"];
   const grouped = {};
   for (const a of visibleAssets()) grouped[a.type || "その他"] = (grouped[a.type || "その他"] || 0) + assetMetrics(a).market;
-  const parts = Object.entries(grouped).map(([name, value], i) => ({ name, value, color: colors[i % colors.length] })).filter(x => x.value > 0);
+  for (const p of visiblePlans()) grouped["積立・NISA"] = (grouped["積立・NISA"] || 0) + planMetrics(p).value;
+  const parts = Object.entries(grouped).map(([name, value], i) => ({ name, value, color: colors[i % colors.length] })).filter(x => x.value > 0).sort((a,b)=>b.value-a.value);
   const total = parts.reduce((s, p) => s + p.value, 0);
   if (!total) {
     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.textAlign = "center"; ctx.font = "13px sans-serif";
     ctx.fillText("保有資産を登録すると表示されます", w / 2, h / 2); $("investmentAllocationLegend").innerHTML = ""; return;
   }
-  const left = 20, right = 20, top = 20, barH = 34, usable = w - left - right;
+  const left = 18, right = 18, top = 26, barH = 32, usable = w - left - right;
   let x = left;
   for (const p of parts) {
-    const bw = usable * p.value / total; ctx.fillStyle = p.color; ctx.fillRect(x, top, bw, barH); x += bw;
+    const bw = usable * p.value / total; ctx.fillStyle = p.color; ctx.fillRect(x, top, Math.max(1,bw), barH); x += bw;
   }
-  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--text"); ctx.font = "800 22px sans-serif"; ctx.textAlign = "center";
-  ctx.fillText(yen(total), w / 2, 105);
-  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.font = "12px sans-serif"; ctx.fillText("投資評価額", w / 2, 126);
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--text"); ctx.font = "800 24px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(yen(total), w / 2, 111);
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.font = "12px sans-serif"; ctx.fillText("投資評価額", w / 2, 133);
   $("investmentAllocationLegend").innerHTML = parts.map(p => `<span><i style="background:${p.color}"></i>${escapeHtml(p.name)} ${Math.round(p.value / total * 100)}%</span>`).join("");
+}
+function investmentAccountParts() {
+  const grouped = {};
+  for (const a of visibleAssets()) grouped[a.account || "未設定"] = (grouped[a.account || "未設定"] || 0) + assetMetrics(a).market;
+  for (const p of visiblePlans()) grouped[p.account || "未設定"] = (grouped[p.account || "未設定"] || 0) + planMetrics(p).value;
+  return Object.entries(grouped).map(([name,value])=>({name,value})).filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
+}
+function renderInvestmentAccountBreakdown() {
+  const parts = investmentAccountParts();
+  const total = parts.reduce((s,p)=>s+p.value,0);
+  $("accountBreakdown").innerHTML = parts.length ? parts.map((p,i)=>{
+    const rate = total ? p.value/total*100 : 0;
+    return `<div class="account-row"><div class="account-row-head"><span>${escapeHtml(p.name)}</span><strong>${yen(p.value)}</strong></div><div class="account-track"><div style="width:${rate}%"></div></div><small>${rate.toFixed(1)}%</small></div>`;
+  }).join("") : '<div class="empty compact-empty">口座情報がありません。</div>';
+}
+function renderInvestmentInsights() {
+  const assets = visibleAssets(), plans = visiblePlans(), totals = investmentAnalysis();
+  const items = [];
+  const valued = assets.map(a=>({name:a.name,market:assetMetrics(a).market})).filter(x=>x.market>0).sort((a,b)=>b.market-a.market);
+  if (valued.length && totals.market) {
+    const topRate = valued[0].market / totals.market * 100;
+    if (topRate >= 45) items.push({tone:"warn", icon:"!", text:`${valued[0].name}が投資全体の${topRate.toFixed(0)}%。1商品への偏りが大きめです。`});
+    else items.push({tone:"good", icon:"✓", text:`最大の商品比率は${topRate.toFixed(0)}%。極端な集中は見られません。`});
+  }
+  if (totals.missingPrices) items.push({tone:"warn", icon:"¥", text:`現在価格が未入力の商品が${totals.missingPrices}件あります。入力すると損益が正確になります。`});
+  if (totals.monthlyPlan) items.push({tone:"good", icon:"↻", text:`毎月${yen(totals.monthlyPlan)}、年間では${yen(totals.monthlyPlan*12)}を積み立てる設定です。`});
+  const noDividendMonth = assets.filter(a=>num(a.dividend)>0 && !String(a.dividendMonths||"").trim()).length;
+  if (noDividendMonth) items.push({tone:"warn", icon:"月", text:`配当月が未入力の商品が${noDividendMonth}件あります。配当カレンダーに反映するには月を入力してください。`});
+  if (!items.length) items.push({tone:"neutral", icon:"i", text:"保有資産や積立を登録すると、投資バランスを自動で確認します。"});
+  $("investmentInsightList").innerHTML = items.slice(0,4).map(x=>`<div class="investment-insight ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
 }
 function renderRanking() {
   const assets = visibleAssets().map(a => ({ a, m: assetMetrics(a), yieldRate: assetDividendYield(a) }));
-  const sorted = [...assets].sort((x, y) => currentRanking === "market" ? y.m.market - x.m.market : currentRanking === "profit" ? y.m.profit - x.m.profit : y.yieldRate - x.yieldRate).slice(0, 5);
+  const sorted = [...assets].sort((x, y) => currentRanking === "market" ? y.m.market - x.m.market : currentRanking === "profit" ? y.m.profit - x.m.profit : y.yieldRate - x.yieldRate).slice(0, 8);
+  const totalMarket = assets.reduce((s,x)=>s+x.m.market,0);
   $("rankingList").innerHTML = sorted.length ? sorted.map((x, i) => {
     const value = currentRanking === "market" ? yen(x.m.market) : currentRanking === "profit" ? signedYen(x.m.profit) : `${x.yieldRate.toFixed(2)}%`;
     const cls = currentRanking === "profit" ? (x.m.profit < 0 ? "negative" : "positive") : "";
-    return `<article class="ranking-item"><span class="rank-badge">${i + 1}</span><div><strong>${escapeHtml(x.a.name)}</strong><small>${escapeHtml(x.a.type)}・${escapeHtml(x.a.owner)}</small></div><b class="${cls}">${value}</b></article>`;
+    const share = totalMarket ? x.m.market/totalMarket*100 : 0;
+    return `<article class="ranking-item"><span class="rank-badge">${i + 1}</span><div class="ranking-main"><strong>${escapeHtml(x.a.name)}</strong><small>${escapeHtml(x.a.type)}・${escapeHtml(x.a.owner)}・構成比${share.toFixed(1)}%</small><div class="ranking-track"><div style="width:${Math.min(100,share)}%"></div></div></div><b class="${cls}">${value}</b></article>`;
   }).join("") : `<div class="empty">ランキングを表示する保有資産がありません。</div>`;
 }
 function renderOwnerSummary() {
   const t = currentOwner === "家族合計" ? investmentTotals() : investmentTotals(currentOwner);
-  $("ownerMarket").textContent = yen(t.market); $("ownerProfit").textContent = yen(t.profit);
+  $("ownerMarket").textContent = yen(t.market); $("ownerProfit").textContent = signedYen(t.profit);
   $("ownerProfit").className = t.profit < 0 ? "negative" : "positive"; $("ownerDividend").textContent = yen(t.dividend);
+  $("investOwnerLabel").textContent = currentOwner === "家族合計" ? "家族の投資資産" : `${currentOwner}の投資資産`;
   const editable = currentOwner !== "家族合計";
   $("assetFormWrap").classList.toggle("hidden", !editable); $("planFormWrap").classList.toggle("hidden", !editable);
 }
 function renderAssets() {
   const q = $("assetSearch").value.trim().toLowerCase(), filter = $("assetFilter").value, sort = $("assetSort").value;
-  const list = visibleAssets().filter(a => (filter === "all" || a.type === filter) && `${a.name} ${a.broker || ""}`.toLowerCase().includes(q)).sort((a, b) => {
+  const allVisible = visibleAssets();
+  const totalMarket = allVisible.reduce((s,a)=>s+assetMetrics(a).market,0);
+  const list = allVisible.filter(a => (filter === "all" || a.type === filter) && `${a.name} ${a.broker || ""}`.toLowerCase().includes(q)).sort((a, b) => {
     const am = assetMetrics(a), bm = assetMetrics(b);
     if (sort === "profitDesc") return bm.profit - am.profit;
     if (sort === "profitAsc") return am.profit - bm.profit;
@@ -554,17 +611,23 @@ function renderAssets() {
     if (sort === "nameAsc") return String(a.name).localeCompare(String(b.name), "ja");
     return bm.market - am.market;
   });
+  $("assetCountLabel").textContent = `${list.length}件`;
   $("assetList").innerHTML = list.length ? list.map(a => {
-    const m = assetMetrics(a);
-    return `<article class="item-card"><div class="item-head"><div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}・${escapeHtml(a.type)}・${escapeHtml(a.account)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${m.profit >= 0 ? '+' : ''}${yen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
-  }).join("") : `<div class="empty">保有資産はまだありません。</div>`;
+    const m = assetMetrics(a), share = totalMarket ? m.market/totalMarket*100 : 0;
+    const priceMissing = num(a.quantity)>0 && num(a.price)<=0;
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${escapeHtml(a.type)}</span><span class="account-chip">${escapeHtml(a.account)}</span>${priceMissing?'<span class="missing-chip">価格未入力</span>':''}</div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}・構成比 ${share.toFixed(1)}%</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="holding-progress"><div style="width:${Math.min(100,share)}%"></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
+  }).join("") : `<div class="empty">条件に合う保有資産はありません。</div>`;
 }
 function renderPlans() {
   const list = visiblePlans();
+  const totals = list.reduce((acc,p)=>{const m=planMetrics(p);acc.monthly+=num(p.monthly);acc.value+=m.value;acc.contributed+=m.contributed;return acc;},{monthly:0,value:0,contributed:0});
+  $("planCountLabel").textContent = `${list.length}件`;
+  $("planMonthlyTotalView").textContent = yen(totals.monthly);
+  $("planAnnualTotalView").textContent = yen(totals.monthly*12);
+  $("planValueTotalView").textContent = yen(totals.value);
   $("planList").innerHTML = list.length ? list.map(p => {
-    const months = monthsSince(p.start), contributed = months * num(p.monthly);
-    const value = p.value === "" || p.value == null ? contributed : num(p.value), profit = value - contributed;
-    return `<article class="item-card"><div class="item-head"><div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}・${escapeHtml(p.account)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">月 ${yen(p.monthly)}<small class="${profit < 0 ? 'negative' : 'positive'}">評価 ${yen(value)}</small></div></div><div class="item-grid"><div><span>開始日</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>積立月数</span><strong>${months}か月</strong></div><div><span>累計入金</span><strong>${yen(contributed)}</strong></div><div><span>評価損益</span><strong class="${profit < 0 ? 'negative' : 'positive'}">${profit >= 0 ? '+' : ''}${yen(profit)}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
+    const m = planMetrics(p);
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">積立</span><span class="account-chip">${escapeHtml(p.account)}</span></div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">月 ${yen(p.monthly)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>開始日</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>積立月数</span><strong>${m.months}か月</strong></div><div><span>累計入金</span><strong>${yen(m.contributed)}</strong></div><div><span>評価損益</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">積立はまだありません。</div>`;
 }
 function renderDividendCalendar() {
@@ -574,7 +637,19 @@ function renderDividendCalendar() {
     if (!ms.length) continue;
     for (const m of ms) { months[m - 1].amount += dividend / ms.length; months[m - 1].names.push(a.name); }
   }
-  $("dividendCalendar").innerHTML = months.map(m => `<div class="month-cell"><span>${m.month}月</span><strong>${yen(m.amount)}</strong><small>${escapeHtml([...new Set(m.names)].join("・"))}</small></div>`).join("");
+  const annual = months.reduce((s,m)=>s+m.amount,0), currentMonth = new Date().getMonth()+1;
+  const upcoming = [...months.slice(currentMonth-1), ...months.slice(0,currentMonth-1)].find(m=>m.amount>0);
+  $("dividendAnnualView").textContent = yen(annual);
+  $("dividendNextView").textContent = upcoming ? `${upcoming.month}月 ${yen(upcoming.amount)}` : "未設定";
+  $("dividendCalendar").innerHTML = months.map(m => `<div class="month-cell ${m.amount ? 'has-dividend' : ''}"><span>${m.month}月</span><strong>${yen(m.amount)}</strong><small>${escapeHtml([...new Set(m.names)].join("・"))}</small></div>`).join("");
+}
+function setInvestmentView(view) {
+  currentInvestmentView = view;
+  const map = { assets:"investmentAssetsView", plans:"investmentPlansView", ranking:"investmentRankingView", dividend:"investmentDividendView" };
+  document.querySelectorAll(".investment-view-tab").forEach(b=>b.classList.toggle("active",b.dataset.investView===view));
+  document.querySelectorAll(".investment-view").forEach(v=>v.classList.toggle("active",v.id===map[view]));
+  if (view === "ranking") renderRanking();
+  if (view === "dividend") renderDividendCalendar();
 }
 function renderLifeEvents() {
   const list = [...state.lifeEvents].sort((a,b) => Number(a.year)-Number(b.year) || String(a.title).localeCompare(String(b.title), "ja"));
@@ -676,15 +751,17 @@ document.addEventListener("click", e => {
   }
   if (d.deleteTx && confirm("この家計記録を削除しますか？")) { state.transactions = state.transactions.filter(t => t.id !== d.deleteTx); saveState(); renderAll(); }
   if (d.editAsset) {
+    setInvestmentView("assets");
     const a = state.assets.find(x => x.id === d.editAsset); if (a) {
       $("assetId").value = a.id; $("assetName").value = a.name; $("assetType").value = a.type; $("assetBroker").value = a.broker || ""; $("assetAccount").value = a.account; $("assetDate").value = a.date || today(); $("assetQuantity").value = a.quantity; $("assetCost").value = a.cost; $("assetPrice").value = a.price; $("assetDividend").value = a.dividend; $("assetDividendMonths").value = a.dividendMonths || "";
-      $("saveAssetButton").textContent = "変更を保存"; $("cancelAssetEdit").classList.remove("hidden"); $("assetFormWrap").scrollIntoView({ behavior: "smooth" });
+      $("saveAssetButton").textContent = "変更を保存"; $("cancelAssetEdit").classList.remove("hidden"); const details = $("assetFormWrap").querySelector("details"); if (details) details.open = true; $("assetFormWrap").scrollIntoView({ behavior: "smooth" });
     }
   }
   if (d.editPlan) {
+    setInvestmentView("plans");
     const p = state.plans.find(x => x.id === d.editPlan); if (p) {
       $("planId").value = p.id; $("planName").value = p.name; $("planMonthly").value = p.monthly; $("planStart").value = p.start || today(); $("planBroker").value = p.broker || ""; $("planAccount").value = p.account; $("planValue").value = p.value ?? "";
-      $("savePlanButton").textContent = "変更を保存"; $("cancelPlanEdit").classList.remove("hidden"); $("planFormWrap").scrollIntoView({ behavior: "smooth" });
+      $("savePlanButton").textContent = "変更を保存"; $("cancelPlanEdit").classList.remove("hidden"); const details = $("planFormWrap").querySelector("details"); if (details) details.open = true; $("planFormWrap").scrollIntoView({ behavior: "smooth" });
     }
   }
   if (d.editEvent) {
@@ -721,8 +798,9 @@ $("cancelAssetEdit").addEventListener("click", clearAssetForm);
 $("cancelPlanEdit").addEventListener("click", clearPlanForm);
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar();
+  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
 }));
+document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
   currentRanking = b.dataset.ranking; document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x === b)); renderRanking();
 }));

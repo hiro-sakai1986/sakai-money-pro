@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第2弾</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第2弾</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -151,80 +151,134 @@
       <div id="txList" class="stack"></div>
     </section>
 
-    <section id="investScreen" class="screen">
-      <div class="segmented three" role="tablist">
+    <section id="investScreen" class="screen investment-screen">
+      <div class="investment-topline">
+        <div><p class="screen-kicker">INVESTMENT PORTFOLIO</p><h2>投資ダッシュボード</h2></div>
+        <span class="portfolio-status">端末内で集計</span>
+      </div>
+
+      <div class="segmented three owner-segmented" role="tablist" aria-label="投資の名義">
         <button class="owner-tab active" data-owner="本人">本人</button>
         <button class="owner-tab" data-owner="夫">夫</button>
         <button class="owner-tab" data-owner="家族合計">家族合計</button>
       </div>
 
-      <div class="owner-summary-grid">
-        <article class="mini-card"><span>評価額</span><strong id="ownerMarket">¥0</strong></article>
-        <article class="mini-card"><span>損益</span><strong id="ownerProfit">¥0</strong></article>
-        <article class="mini-card"><span>年間配当</span><strong id="ownerDividend">¥0</strong></article>
+      <article class="investment-hero">
+        <div>
+          <span id="investOwnerLabel">本人の投資資産</span>
+          <strong id="ownerMarket">¥0</strong>
+          <small>投資元本 <b id="analysisInvested">¥0</b></small>
+        </div>
+        <div class="investment-hero-profit">
+          <span>評価損益</span>
+          <strong id="ownerProfit">¥0</strong>
+          <small id="analysisProfitRate">0.0%</small>
+        </div>
+      </article>
+
+      <div class="investment-summary-grid">
+        <article class="card investment-summary-card"><span>年間配当</span><strong id="ownerDividend">¥0</strong><small id="analysisYield">利回り 0.00%</small></article>
+        <article class="card investment-summary-card"><span>毎月の積立</span><strong id="investMonthlyPlanSummary">¥0</strong><small id="investAnnualPlanSummary">年間 ¥0</small></article>
+        <article class="card investment-summary-card"><span>保有商品</span><strong id="analysisCount">0商品</strong><small id="assetPlanCountSub">資産0・積立0</small></article>
+        <article class="card investment-summary-card"><span>入力不足</span><strong id="missingPriceCount">0件</strong><small>価格が未入力の商品</small></article>
       </div>
 
-      <h2>投資成績</h2>
-      <div class="analysis-grid">
-        <article class="card analysis-card"><span>投資元本</span><strong id="analysisInvested">¥0</strong></article>
-        <article class="card analysis-card"><span>損益率</span><strong id="analysisProfitRate">0.0%</strong></article>
-        <article class="card analysis-card"><span>配当利回り</span><strong id="analysisYield">0.0%</strong></article>
-        <article class="card analysis-card"><span>銘柄数</span><strong id="analysisCount">0</strong></article>
-      </div>
+      <div class="section-heading investment-section-heading"><div><p>PORTFOLIO MIX</p><h2>投資バランス</h2></div></div>
       <article class="card chart-card investment-chart-card">
         <canvas id="investmentAllocationChart" width="640" height="230" aria-label="投資資産配分グラフ"></canvas>
         <div id="investmentAllocationLegend" class="legend"></div>
       </article>
 
-      <div id="assetFormWrap">
-        <h2>保有資産を登録</h2>
-        <article class="card form-card">
-          <input id="assetId" type="hidden">
-          <div class="form-grid">
-            <label>銘柄・商品名<input id="assetName" placeholder="例：任天堂"></label>
-            <label>区分<select id="assetType"><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></label>
-            <label>証券会社<input id="assetBroker" placeholder="大和証券・SBI証券など"></label>
-            <label>口座<select id="assetAccount"><option>NISA</option><option>特定口座</option><option>一般口座</option></select></label>
-            <label>入力日<input id="assetDate" type="date"></label>
-            <label>保有数<input id="assetQuantity" type="number" min="0" step="0.0001" inputmode="decimal"></label>
-            <label>取得単価（円）<input id="assetCost" type="number" min="0" step="0.01" inputmode="decimal"></label>
-            <label>現在価格（円）<input id="assetPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
-            <label>年間配当（円）<input id="assetDividend" type="number" min="0" step="1" inputmode="numeric"></label>
-            <label>配当月<input id="assetDividendMonths" placeholder="例：3,6,9,12"></label>
-          </div>
-          <div class="button-row"><button class="primary" id="saveAssetButton">保有資産を追加</button><button class="secondary hidden" id="cancelAssetEdit">編集を取消</button></div>
+      <div class="investment-two-column">
+        <article class="card account-breakdown-card">
+          <div class="compact-heading"><div><span>ACCOUNT</span><strong>口座別の内訳</strong></div></div>
+          <div id="accountBreakdown" class="account-breakdown"></div>
+        </article>
+        <article class="card investment-insight-card">
+          <div class="compact-heading"><div><span>CHECK</span><strong>投資チェック</strong></div></div>
+          <div id="investmentInsightList" class="investment-insight-list"></div>
         </article>
       </div>
-      <div class="toolbar asset-toolbar"><input id="assetSearch" placeholder="銘柄を検索"><select id="assetFilter"><option value="all">すべて</option><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select><select id="assetSort"><option value="marketDesc">評価額が高い順</option><option value="profitDesc">利益が大きい順</option><option value="profitAsc">損失が大きい順</option><option value="yieldDesc">配当利回り順</option><option value="nameAsc">名前順</option></select></div>
-      <div id="assetList" class="stack"></div>
 
-      <div id="planFormWrap">
-        <h2>積立・NISA</h2>
-        <article class="card form-card">
-          <input id="planId" type="hidden">
-          <div class="form-grid">
-            <label>商品名<input id="planName" placeholder="例：S&P500"></label>
-            <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
-            <label>購入開始日<input id="planStart" type="date"></label>
-            <label>証券会社<input id="planBroker" placeholder="大和証券・SBI証券など"></label>
-            <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
-            <label>現在評価額（円）<input id="planValue" type="number" min="0" inputmode="numeric"></label>
-          </div>
-          <div class="button-row"><button class="primary" id="savePlanButton">積立を追加</button><button class="secondary hidden" id="cancelPlanEdit">編集を取消</button></div>
+      <div class="investment-view-tabs" role="tablist" aria-label="投資画面の切替">
+        <button class="investment-view-tab active" data-invest-view="assets"><span>▣</span>保有資産</button>
+        <button class="investment-view-tab" data-invest-view="plans"><span>↻</span>積立</button>
+        <button class="investment-view-tab" data-invest-view="ranking"><span>★</span>順位</button>
+        <button class="investment-view-tab" data-invest-view="dividend"><span>¥</span>配当</button>
+      </div>
+
+      <div id="investmentAssetsView" class="investment-view active">
+        <div class="view-title-row"><div><p class="screen-kicker">HOLDINGS</p><h2>保有資産</h2></div><span id="assetCountLabel" class="record-count">0件</span></div>
+        <div id="assetFormWrap">
+          <details class="investment-entry-details">
+            <summary>＋ 保有資産を登録する</summary>
+            <article class="card form-card investment-form-card">
+              <input id="assetId" type="hidden">
+              <div class="form-grid">
+                <label>銘柄・商品名<input id="assetName" placeholder="例：任天堂"></label>
+                <label>区分<select id="assetType"><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select></label>
+                <label>証券会社<input id="assetBroker" placeholder="大和証券・SBI証券など"></label>
+                <label>口座<select id="assetAccount"><option>NISA</option><option>特定口座</option><option>一般口座</option></select></label>
+                <label>入力日<input id="assetDate" type="date"></label>
+                <label>保有数<input id="assetQuantity" type="number" min="0" step="0.0001" inputmode="decimal"></label>
+                <label>取得単価（円）<input id="assetCost" type="number" min="0" step="0.01" inputmode="decimal"></label>
+                <label>現在価格（円）<input id="assetPrice" type="number" min="0" step="0.01" inputmode="decimal"></label>
+                <label>年間配当（円）<input id="assetDividend" type="number" min="0" step="1" inputmode="numeric"></label>
+                <label>配当月<input id="assetDividendMonths" placeholder="例：3,6,9,12"></label>
+              </div>
+              <div class="button-row"><button class="primary" id="saveAssetButton">保有資産を追加</button><button class="secondary hidden" id="cancelAssetEdit">編集を取消</button></div>
+            </article>
+          </details>
+        </div>
+        <div class="toolbar asset-toolbar investment-toolbar"><input id="assetSearch" placeholder="銘柄・証券会社を検索"><select id="assetFilter"><option value="all">すべて</option><option>日本株</option><option>米国株</option><option>投資信託</option><option>ETF</option><option>その他</option></select><select id="assetSort"><option value="marketDesc">評価額が高い順</option><option value="profitDesc">利益が大きい順</option><option value="profitAsc">損失が大きい順</option><option value="yieldDesc">配当利回り順</option><option value="nameAsc">名前順</option></select></div>
+        <div id="assetList" class="stack investment-stack"></div>
+      </div>
+
+      <div id="investmentPlansView" class="investment-view">
+        <div class="view-title-row"><div><p class="screen-kicker">MONTHLY INVESTING</p><h2>積立・NISA</h2></div><span id="planCountLabel" class="record-count">0件</span></div>
+        <div id="planFormWrap">
+          <details class="investment-entry-details">
+            <summary>＋ 積立商品を登録する</summary>
+            <article class="card form-card investment-form-card">
+              <input id="planId" type="hidden">
+              <div class="form-grid">
+                <label>商品名<input id="planName" placeholder="例：S&P500"></label>
+                <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
+                <label>購入開始日<input id="planStart" type="date"></label>
+                <label>証券会社<input id="planBroker" placeholder="大和証券・SBI証券など"></label>
+                <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
+                <label>現在評価額（円）<input id="planValue" type="number" min="0" inputmode="numeric"></label>
+              </div>
+              <div class="button-row"><button class="primary" id="savePlanButton">積立を追加</button><button class="secondary hidden" id="cancelPlanEdit">編集を取消</button></div>
+            </article>
+          </details>
+        </div>
+        <article class="card plan-overview-card">
+          <div><span>毎月の積立合計</span><strong id="planMonthlyTotalView">¥0</strong></div>
+          <div><span>年間積立予定</span><strong id="planAnnualTotalView">¥0</strong></div>
+          <div><span>積立評価額</span><strong id="planValueTotalView">¥0</strong></div>
         </article>
+        <div id="planList" class="stack investment-stack"></div>
       </div>
-      <div id="planList" class="stack"></div>
 
-      <h2>保有株ランキング</h2>
-      <div class="ranking-tabs segmented three">
-        <button class="ranking-tab active" data-ranking="market">評価額</button>
-        <button class="ranking-tab" data-ranking="profit">損益</button>
-        <button class="ranking-tab" data-ranking="yield">配当利回り</button>
+      <div id="investmentRankingView" class="investment-view">
+        <div class="view-title-row"><div><p class="screen-kicker">TOP HOLDINGS</p><h2>保有株ランキング</h2></div></div>
+        <div class="ranking-tabs segmented three">
+          <button class="ranking-tab active" data-ranking="market">評価額</button>
+          <button class="ranking-tab" data-ranking="profit">損益</button>
+          <button class="ranking-tab" data-ranking="yield">配当利回り</button>
+        </div>
+        <div id="rankingList" class="ranking-list enhanced-ranking"></div>
       </div>
-      <div id="rankingList" class="ranking-list"></div>
 
-      <h2>配当カレンダー</h2>
-      <article class="card"><div id="dividendCalendar" class="calendar-grid"></div></article>
+      <div id="investmentDividendView" class="investment-view">
+        <div class="view-title-row"><div><p class="screen-kicker">DIVIDEND</p><h2>配当カレンダー</h2></div></div>
+        <div class="dividend-summary-grid">
+          <article class="card"><span>年間配当見込み</span><strong id="dividendAnnualView">¥0</strong></article>
+          <article class="card"><span>次の配当月</span><strong id="dividendNextView">未設定</strong></article>
+        </div>
+        <article class="card dividend-calendar-card"><div id="dividendCalendar" class="calendar-grid"></div></article>
+      </div>
     </section>
 
     <section id="educationScreen" class="screen">
