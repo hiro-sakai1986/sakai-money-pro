@@ -67,10 +67,30 @@ const escapeHtml = value => String(value ?? "").replace(/[&<>'"]/g, c => ({
 const uid = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 function clone(v) { return JSON.parse(JSON.stringify(v)); }
+
+function normalizeOwner(value) {
+  const text = String(value ?? "").normalize("NFKC").trim();
+  if (["本人", "ヒロ", "妻", "自分", "私", "本人分"].includes(text)) return "本人";
+  if (["夫", "旦那", "主人", "夫分"].includes(text)) return "夫";
+  return text || "本人";
+}
+
+function parseDividendMonths(value) {
+  const normalized = String(value ?? "").normalize("NFKC");
+  const months = [...normalized.matchAll(/(?:^|\D)(1[0-2]|[1-9])(?=\D|$)/g)]
+    .map(match => Number(match[1]))
+    .filter(month => month >= 1 && month <= 12);
+  return [...new Set(months)];
+}
+
 function normalize(raw) {
   const s = { ...clone(defaultState), ...(raw || {}) };
-  s.assets = Array.isArray(s.assets) ? s.assets : [];
-  s.plans = Array.isArray(s.plans) ? s.plans : [];
+  s.assets = Array.isArray(s.assets)
+    ? s.assets.map(asset => ({ ...asset, owner: normalizeOwner(asset?.owner) }))
+    : [];
+  s.plans = Array.isArray(s.plans)
+    ? s.plans.map(plan => ({ ...plan, owner: normalizeOwner(plan?.owner) }))
+    : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
@@ -266,11 +286,11 @@ function assetMetrics(a) {
   const market = q * price, invested = q * cost, profit = market - invested;
   return { market, invested, profit, rate: invested ? profit / invested * 100 : 0 };
 }
-function visibleAssets() { return state.assets.filter(a => currentOwner === "家族合計" || a.owner === currentOwner); }
-function visiblePlans() { return state.plans.filter(p => currentOwner === "家族合計" || p.owner === currentOwner); }
+function visibleAssets() { return state.assets.filter(a => currentOwner === "家族合計" || normalizeOwner(a.owner) === currentOwner); }
+function visiblePlans() { return state.plans.filter(p => currentOwner === "家族合計" || normalizeOwner(p.owner) === currentOwner); }
 function investmentTotals(owner = null) {
-  const assets = state.assets.filter(a => !owner || a.owner === owner);
-  const plans = state.plans.filter(p => !owner || p.owner === owner);
+  const assets = state.assets.filter(a => !owner || normalizeOwner(a.owner) === owner);
+  const plans = state.plans.filter(p => !owner || normalizeOwner(p.owner) === owner);
   const total = assets.reduce((s, a) => {
     const m = assetMetrics(a);
     s.market += m.market; s.invested += m.invested; s.profit += m.profit; s.dividend += num(a.dividend);
@@ -682,7 +702,7 @@ function renderInvestmentInsights() {
   }
   if (totals.missingPrices) items.push({tone:"warn", icon:"¥", text:`現在価格が未入力の商品が${totals.missingPrices}件あります。入力すると損益が正確になります。`});
   if (totals.monthlyPlan) items.push({tone:"good", icon:"↻", text:`毎月${yen(totals.monthlyPlan)}、年間では${yen(totals.monthlyPlan*12)}を積み立てる設定です。`});
-  const noDividendMonth = assets.filter(a=>num(a.dividend)>0 && !String(a.dividendMonths||"").trim()).length;
+  const noDividendMonth = assets.filter(a => num(a.dividend) > 0 && !parseDividendMonths(a.dividendMonths).length).length;
   if (noDividendMonth) items.push({tone:"warn", icon:"月", text:`配当月が未入力の商品が${noDividendMonth}件あります。配当カレンダーに反映するには月を入力してください。`});
   if (!items.length) items.push({tone:"neutral", icon:"i", text:"保有資産や積立を登録すると、投資バランスを自動で確認します。"});
   $("investmentInsightList").innerHTML = items.slice(0,4).map(x=>`<div class="investment-insight ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
@@ -740,7 +760,7 @@ function renderPlans() {
 function renderDividendCalendar() {
   const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [] }));
   for (const a of visibleAssets()) {
-    const dividend = num(a.dividend), ms = String(a.dividendMonths || "").split(/[,、\s]+/).map(Number).filter(m => m >= 1 && m <= 12);
+    const dividend = num(a.dividend), ms = parseDividendMonths(a.dividendMonths);
     if (!ms.length) continue;
     for (const m of ms) { months[m - 1].amount += dividend / ms.length; months[m - 1].names.push(a.name); }
   }
@@ -836,13 +856,13 @@ $("addTxButton").addEventListener("click", () => {
 });
 $("saveAssetButton").addEventListener("click", () => {
   const name = $("assetName").value.trim(); if (!name) return alert("銘柄・商品名を入力してください");
-  const id = $("assetId").value, data = { id: id || uid(), owner: currentOwner, name, type: $("assetType").value, broker: $("assetBroker").value.trim(), account: $("assetAccount").value, date: $("assetDate").value, quantity: num($("assetQuantity").value), cost: num($("assetCost").value), price: num($("assetPrice").value), dividend: num($("assetDividend").value), dividendMonths: $("assetDividendMonths").value.trim() };
+  const id = $("assetId").value, data = { id: id || uid(), owner: normalizeOwner(currentOwner), name, type: $("assetType").value, broker: $("assetBroker").value.trim(), account: $("assetAccount").value, date: $("assetDate").value, quantity: num($("assetQuantity").value), cost: num($("assetCost").value), price: num($("assetPrice").value), dividend: num($("assetDividend").value), dividendMonths: $("assetDividendMonths").value.trim() };
   if (id) state.assets = state.assets.map(a => a.id === id ? data : a); else state.assets.push(data);
   saveState(); clearAssetForm(); renderAll();
 });
 $("savePlanButton").addEventListener("click", () => {
   const name = $("planName").value.trim(); if (!name) return alert("商品名を入力してください");
-  const id = $("planId").value, data = { id: id || uid(), owner: currentOwner, name, monthly: num($("planMonthly").value), start: $("planStart").value, broker: $("planBroker").value.trim(), account: $("planAccount").value, value: $("planValue").value === "" ? null : num($("planValue").value) };
+  const id = $("planId").value, data = { id: id || uid(), owner: normalizeOwner(currentOwner), name, monthly: num($("planMonthly").value), start: $("planStart").value, broker: $("planBroker").value.trim(), account: $("planAccount").value, value: $("planValue").value === "" ? null : num($("planValue").value) };
   if (id) state.plans = state.plans.map(p => p.id === id ? data : p); else state.plans.push(data);
   saveState(); clearPlanForm(); renderAll();
 });
@@ -954,7 +974,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta2-autosave", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta2-dividend-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
