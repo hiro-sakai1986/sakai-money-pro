@@ -1,6 +1,11 @@
 "use strict";
 
 const STORAGE_KEY = "sakaiMoneyPro8Alpha";
+const MIRROR_KEY = "sakaiMoneyPro8PermanentMirror";
+const IDB_NAME = "sakaiMoneyProPermanentStorage";
+const IDB_STORE = "appState";
+const IDB_RECORD_KEY = "current";
+let persistentStorageReady = false;
 const LEGACY_KEYS = [
   "sakaiMoneyPro7ThirdD",
   "sakaiMoneyPro7ThirdC",
@@ -105,7 +110,7 @@ function localStorageCandidateKeys() {
   const keys = [...LEGACY_KEYS];
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (key && key.startsWith("sakaiMoneyPro") && key !== STORAGE_KEY && !keys.includes(key)) {
+    if (key && key.startsWith("sakaiMoneyPro") && key !== STORAGE_KEY && key !== MIRROR_KEY && !keys.includes(key)) {
       keys.push(key);
     }
   }
@@ -114,7 +119,7 @@ function localStorageCandidateKeys() {
 
 function loadState() {
   try {
-    const ownText = localStorage.getItem(STORAGE_KEY);
+    const ownText = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(MIRROR_KEY);
     const ownRaw = ownText ? JSON.parse(ownText) : null;
 
     // すでに8.0に実データがある場合は、そのデータを最優先する。
@@ -139,9 +144,111 @@ function loadState() {
   } catch (e) { console.warn(e); }
   return clone(defaultState);
 }
+function stateTimestamp(value) {
+  const timestamp = Date.parse(value?._savedAt || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function openPersistentDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) return resolve(null);
+    const request = indexedDB.open(IDB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(IDB_STORE)) {
+        database.createObjectStore(IDB_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readIndexedState() {
+  const database = await openPersistentDatabase();
+  if (!database) return null;
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(IDB_STORE, "readonly");
+    const request = transaction.objectStore(IDB_STORE).get(IDB_RECORD_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => database.close();
+  });
+}
+
+async function writeIndexedState(snapshot) {
+  const database = await openPersistentDatabase();
+  if (!database) return;
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(IDB_STORE, "readwrite");
+    transaction.objectStore(IDB_STORE).put(snapshot, IDB_RECORD_KEY);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  database.close();
+}
+
+function writeLocalCopies(snapshot) {
+  const payload = JSON.stringify(snapshot);
+  localStorage.setItem(STORAGE_KEY, payload);
+  localStorage.setItem(MIRROR_KEY, payload);
+}
+
 function saveState() {
   recordSnapshot();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  state._savedAt = new Date().toISOString();
+  try {
+    writeLocalCopies(state);
+  } catch (error) {
+    console.warn("端末内の通常保存に失敗しました", error);
+  }
+  if (persistentStorageReady) {
+    writeIndexedState(clone(state)).catch(error => {
+      console.warn("端末内の予備保存に失敗しました", error);
+    });
+  }
+}
+
+async function initializePersistentStorage() {
+  try {
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+
+    const indexedState = await readIndexedState();
+    const currentHasData = hasMeaningfulData(state);
+    const indexedHasData = hasMeaningfulData(indexedState);
+
+    if (
+      indexedHasData &&
+      (!currentHasData || stateTimestamp(indexedState) > stateTimestamp(state))
+    ) {
+      state = normalize(indexedState);
+      try {
+        writeLocalCopies(state);
+      } catch (error) {
+        console.warn("復旧データの通常保存に失敗しました", error);
+      }
+      renderAll();
+    }
+
+    persistentStorageReady = true;
+    await writeIndexedState(clone(state));
+  } catch (error) {
+    persistentStorageReady = true;
+    console.warn("予備保存の初期化に失敗しました", error);
+  }
+}
+
+function saveBeforeClosing() {
+  try {
+    recordSnapshot();
+    state._savedAt = new Date().toISOString();
+    writeLocalCopies(state);
+  } catch (error) {
+    console.warn("終了前の保存に失敗しました", error);
+  }
 }
 function today() { return new Date().toISOString().slice(0, 10); }
 function formatTodayLabel() {
@@ -847,7 +954,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta2-autosave", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -864,4 +971,10 @@ window.addEventListener("resize", () => { if ($("homeScreen").classList.contains
 
 $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today();
 recordSnapshot(); saveState(); renderAll();
+initializePersistentStorage();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveBeforeClosing();
+});
+window.addEventListener("pagehide", saveBeforeClosing);
+window.addEventListener("beforeunload", saveBeforeClosing);
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.error));
