@@ -1,474 +1,1073 @@
-(()=>{
 "use strict";
-const $=id=>document.getElementById(id);
-const KEY="sakaiMoneyPro50";
-const ENCRYPTED_KEY="sakaiMoneyPro52EncryptedState";
 
-const AUTH_KEY="sakaiMoneyPro51Auth";
-const SESSION_KEY="sakaiMoneyPro51Unlocked";
-const AUTO_LOCK_MS=10*60*1000;
-let autoLockTimer=null;
-let setupMode=false;
-let activeEncryptionKey=null;
-let saveQueue=Promise.resolve();
+const STORAGE_KEY = "sakaiMoneyPro8Alpha";
+const MIRROR_KEY = "sakaiMoneyPro8PermanentMirror";
+const IDB_NAME = "sakaiMoneyProPermanentStorage";
+const IDB_STORE = "appState";
+const IDB_RECORD_KEY = "current";
+let persistentStorageReady = false;
+const LEGACY_KEYS = [
+  "sakaiMoneyPro7ThirdD",
+  "sakaiMoneyPro7ThirdC",
+  "sakaiMoneyPro7ThirdB",
+  "sakaiMoneyPro7ThirdA",
+  "sakaiMoneyPro7SecondRelease",
+  "sakaiMoneyPro70",
+  "sakaiMoneyPro7FirstRelease",
+  "sakaiMoneyPro61",
+  "sakaiMoneyPro6FirstRelease",
+  "sakaiMoneyPro6SecondRelease",
+  "sakaiMoneyPro50"
+];
 
-function bytesToBase64(bytes){
-  let s="";bytes.forEach(b=>s+=String.fromCharCode(b));
-  return btoa(s);
-}
-function base64ToBytes(s){
-  return Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-}
-async function hashPassword(password,salt){
-  const data=new TextEncoder().encode(password);
-  const key=await crypto.subtle.importKey("raw",data,{name:"PBKDF2"},false,["deriveBits"]);
-  const bits=await crypto.subtle.deriveBits(
-    {name:"PBKDF2",salt,iterations:150000,hash:"SHA-256"},
-    key,256
-  );
-  return bytesToBase64(new Uint8Array(bits));
+const defaultState = {
+  cash: 0,
+  loan: 0,
+  assetGoal: 10000000,
+  dark: false,
+  assets: [],
+  plans: [],
+  transactions: [],
+  budgetSettings: { monthlyLimits: {} },
+  education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
+  mortgage: { balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
+  savingsGoals: [
+    { id: "default-car", category: "車", name: "セレナ買い替え", current: 0, target: 2000000, monthly: 20000, deadline: "2027-04-01" },
+    { id: "default-travel", category: "旅行", name: "家族旅行", current: 0, target: 500000, monthly: 10000, deadline: "2027-10-01" },
+    { id: "default-repair", category: "住宅修繕", name: "家の修繕・家電", current: 0, target: 1000000, monthly: 10000, deadline: "2030-12-31" }
+  ],
+  snapshots: [],
+  lifeEvents: [
+    { id: "default-2029", year: 2029, person: "長女", title: "小学校卒業・中学校入学", cost: 0 },
+    { id: "default-2031", year: 2031, person: "次女", title: "小学校卒業・中学校入学", cost: 0 },
+    { id: "default-2032", year: 2032, person: "長女", title: "中学校卒業・高校入学", cost: 0 },
+    { id: "default-2034a", year: 2034, person: "次女", title: "中学校卒業・高校入学", cost: 0 },
+    { id: "default-2034b", year: 2034, person: "三女", title: "小学校卒業・中学校入学", cost: 0 },
+    { id: "default-2035", year: 2035, person: "長女", title: "高校卒業", cost: 0 },
+    { id: "default-2037a", year: 2037, person: "次女", title: "高校卒業", cost: 0 },
+    { id: "default-2037b", year: 2037, person: "三女", title: "中学校卒業・高校入学", cost: 0 },
+    { id: "default-2040", year: 2040, person: "三女", title: "高校卒業", cost: 0 }
+  ]
+};
+
+let state = loadState();
+let currentOwner = "本人";
+let currentRanking = "market";
+let currentInvestmentView = "assets";
+
+const $ = id => document.getElementById(id);
+const yen = value => new Intl.NumberFormat("ja-JP", {
+  style: "currency", currency: "JPY", maximumFractionDigits: 0
+}).format(Number(value) || 0);
+const num = value => Math.max(0, Number(value) || 0);
+const signedYen = value => `${Number(value) >= 0 ? "+" : "−"}${yen(Math.abs(Number(value) || 0))}`;
+const escapeHtml = value => String(value ?? "").replace(/[&<>'"]/g, c => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+}[c]));
+const uid = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+function clone(v) { return JSON.parse(JSON.stringify(v)); }
+
+function normalizeOwner(value) {
+  const text = String(value ?? "").normalize("NFKC").trim();
+  if (["本人", "ヒロ", "妻", "自分", "私", "本人分"].includes(text)) return "本人";
+  if (["夫", "旦那", "主人", "夫分"].includes(text)) return "夫";
+  return text || "本人";
 }
 
-async function deriveEncryptionKey(password,salt){
-  const material=await crypto.subtle.importKey(
-    "raw",new TextEncoder().encode(password),
-    {name:"PBKDF2"},false,["deriveKey"]
-  );
-  return crypto.subtle.deriveKey(
-    {name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},
-    material,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]
+function parseDividendMonths(value) {
+  const normalized = String(value ?? "").normalize("NFKC");
+  const months = [...normalized.matchAll(/(?:^|\D)(1[0-2]|[1-9])(?=\D|$)/g)]
+    .map(match => Number(match[1]))
+    .filter(month => month >= 1 && month <= 12);
+  return [...new Set(months)];
+}
+
+function normalize(raw) {
+  const s = { ...clone(defaultState), ...(raw || {}) };
+  s.assets = Array.isArray(s.assets)
+    ? s.assets.map(asset => ({ ...asset, owner: normalizeOwner(asset?.owner) }))
+    : [];
+  s.plans = Array.isArray(s.plans)
+    ? s.plans.map(plan => ({
+        ...plan,
+        owner: normalizeOwner(plan?.owner),
+        method: plan?.method === "lump" ? "lump" : "monthly",
+        invested: plan?.invested === "" || plan?.invested == null ? null : num(plan.invested)
+      }))
+    : [];
+  s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
+  s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
+  s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
+  s.snapshots = Array.isArray(s.snapshots) ? s.snapshots : [];
+  s.lifeEvents = Array.isArray(s.lifeEvents) ? s.lifeEvents : clone(defaultState.lifeEvents);
+  s.savingsGoals = Array.isArray(s.savingsGoals) ? s.savingsGoals : clone(defaultState.savingsGoals);
+  s.education = { ...defaultState.education, ...(s.education || {}) };
+  s.mortgage = { ...defaultState.mortgage, ...(s.mortgage || {}) };
+  if (!s.mortgage.balance && s.loan) s.mortgage.balance = Math.max(0, Number(s.loan) || 0);
+  s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
+  return s;
+}
+function hasMeaningfulData(raw) {
+  if (!raw || typeof raw !== "object") return false;
+  const education = raw.education || {};
+  const mortgage = raw.mortgage || {};
+  const goals = Array.isArray(raw.savingsGoals) ? raw.savingsGoals : [];
+  return Boolean(
+    Number(raw.cash) ||
+    Number(raw.loan) ||
+    (Array.isArray(raw.assets) && raw.assets.length) ||
+    (Array.isArray(raw.plans) && raw.plans.length) ||
+    (Array.isArray(raw.transactions) && raw.transactions.length) ||
+    Number(education.child1) ||
+    Number(education.child2) ||
+    Number(education.child3) ||
+    Number(education.monthly) ||
+    Number(education.target1) ||
+    Number(education.target2) ||
+    Number(education.target3) ||
+    Number(mortgage.balance) ||
+    goals.some(goal => Number(goal?.current))
   );
 }
-async function encryptObject(value,key){
-  const iv=crypto.getRandomValues(new Uint8Array(12));
-  const plain=new TextEncoder().encode(JSON.stringify(value));
-  const encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,plain);
-  return {iv:bytesToBase64(iv),ciphertext:bytesToBase64(new Uint8Array(encrypted))};
+
+function localStorageCandidateKeys() {
+  const keys = [...LEGACY_KEYS];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("sakaiMoneyPro") && key !== STORAGE_KEY && key !== MIRROR_KEY && !keys.includes(key)) {
+      keys.push(key);
+    }
+  }
+  return keys;
 }
-async function decryptObject(payload,key){
-  const plain=await crypto.subtle.decrypt(
-    {name:"AES-GCM",iv:base64ToBytes(payload.iv)},
-    key,base64ToBytes(payload.ciphertext)
-  );
-  return JSON.parse(new TextDecoder().decode(plain));
-}
-function loadPlaintextForMigration(){
-  try{
-    const current=JSON.parse(localStorage.getItem(KEY)||"null");
-    if(current)return {...clone(defaults),...current};
-    for(const k of ["sakaiMoneyPro41","sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]){
-      const old=JSON.parse(localStorage.getItem(k)||"null");
-      if(old){
-        const migrated={...clone(defaults),...old};
-        if(old.months)migrated.yearData={[nowY]:old.months};
+
+function loadState() {
+  try {
+    const ownText = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(MIRROR_KEY);
+    const ownRaw = ownText ? JSON.parse(ownText) : null;
+
+    // すでに8.0に実データがある場合は、そのデータを最優先する。
+    if (hasMeaningfulData(ownRaw)) return normalize(ownRaw);
+
+    // 8.0が一度空の状態で保存されていても、旧版の実データを探して復旧する。
+    for (const key of localStorageCandidateKeys()) {
+      const oldText = localStorage.getItem(key);
+      if (!oldText) continue;
+      try {
+        const oldRaw = JSON.parse(oldText);
+        if (!hasMeaningfulData(oldRaw)) continue;
+        const migrated = normalize(oldRaw);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
         return migrated;
+      } catch (error) {
+        console.warn(`旧データ ${key} は読み込めませんでした`, error);
       }
     }
-  }catch(e){}
-  return clone(defaults);
+
+    if (ownRaw) return normalize(ownRaw);
+  } catch (e) { console.warn(e); }
+  return clone(defaultState);
 }
-async function loadEncryptedState(key){
-  const raw=localStorage.getItem(ENCRYPTED_KEY);
-  if(!raw)return null;
-  return decryptObject(JSON.parse(raw),key);
+function stateTimestamp(value) {
+  const timestamp = Date.parse(value?._savedAt || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
-async function saveEncryptedState(){
-  if(!activeEncryptionKey)return;
-  const payload=await encryptObject(state,activeEncryptionKey);
-  localStorage.setItem(ENCRYPTED_KEY,JSON.stringify(payload));
-}
-function queueEncryptedSave(){
-  if(!activeEncryptionKey)return Promise.resolve();
-  saveQueue=saveQueue.then(saveEncryptedState).catch(err=>{
-    console.error(err);
-    alert("暗号化保存に失敗しました。");
+
+function openPersistentDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) return resolve(null);
+    const request = indexedDB.open(IDB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(IDB_STORE)) {
+        database.createObjectStore(IDB_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
-  return saveQueue;
-}
-function removePlaintextCopies(){
-  [KEY,"sakaiMoneyPro41","sakaiMoneyPro4","sakaiMoneyPro32Loan","sakaiMoneyPro31Household","sakaiMoneyPro3Stable"]
-    .forEach(k=>localStorage.removeItem(k));
 }
 
-function getAuth(){
-  try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")}catch(e){return null}
+async function readIndexedState() {
+  const database = await openPersistentDatabase();
+  if (!database) return null;
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(IDB_STORE, "readonly");
+    const request = transaction.objectStore(IDB_STORE).get(IDB_RECORD_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => database.close();
+  });
 }
-function showLock(isSetup=false){
-  setupMode=isSetup;
-  $("lockScreen").classList.remove("hidden");
-  $("lockPassword").value="";
-  $("lockPasswordConfirm").value="";
-  $("lockError").textContent="";
-  $("lockPasswordConfirm").style.display=isSetup?"block":"none";
-  $("lockDescription").textContent=isSetup
-    ?"最初に、この端末で使うパスワードを設定してください。"
-    :"パスワードを入力してください。";
-  $("unlockButton").textContent=isSetup?"パスワードを設定":"開く";
-  setTimeout(()=>$("lockPassword").focus(),100);
+
+async function writeIndexedState(snapshot) {
+  const database = await openPersistentDatabase();
+  if (!database) return;
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(IDB_STORE, "readwrite");
+    transaction.objectStore(IDB_STORE).put(snapshot, IDB_RECORD_KEY);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  database.close();
 }
-function hideLock(){
-  $("lockScreen").classList.add("hidden");
-  sessionStorage.setItem(SESSION_KEY,"1");
-  resetAutoLock();
+
+function writeLocalCopies(snapshot) {
+  const payload = JSON.stringify(snapshot);
+  localStorage.setItem(STORAGE_KEY, payload);
+  localStorage.setItem(MIRROR_KEY, payload);
 }
-async function handleUnlock(){
-  const pass=$("lockPassword").value;
-  try{
-    if(setupMode){
-      const confirmPass=$("lockPasswordConfirm").value;
-      if(pass.length<8){
-        $("lockError").textContent="8文字以上で設定してください。";
-        return;
-      }
-      if(pass!==confirmPass){
-        $("lockError").textContent="確認用パスワードと一致しません。";
-        return;
-      }
-      const authSalt=crypto.getRandomValues(new Uint8Array(16));
-      const encSalt=crypto.getRandomValues(new Uint8Array(16));
-      const hash=await hashPassword(pass,authSalt);
-      activeEncryptionKey=await deriveEncryptionKey(pass,encSalt);
-      state=loadPlaintextForMigration();
-      ensureV50();
-      await saveEncryptedState();
-      removePlaintextCopies();
-      localStorage.setItem(AUTH_KEY,JSON.stringify({
-        salt:bytesToBase64(authSalt),
-        encSalt:bytesToBase64(encSalt),
-        hash
-      }));
-      renderAll();
-      hideLock();
-      return;
-    }
 
-    const auth=getAuth();
-    if(!auth){showLock(true);return}
-    const hash=await hashPassword(pass,base64ToBytes(auth.salt));
-    if(hash!==auth.hash){
-      $("lockError").textContent="パスワードが違います。";
-      return;
-    }
-
-    let encSalt=auth.encSalt?base64ToBytes(auth.encSalt):crypto.getRandomValues(new Uint8Array(16));
-    activeEncryptionKey=await deriveEncryptionKey(pass,encSalt);
-
-    let decrypted=null;
-    try{decrypted=await loadEncryptedState(activeEncryptionKey)}catch(e){
-      $("lockError").textContent="暗号化データを開けません。パスワードまたはデータが違います。";
-      activeEncryptionKey=null;
-      return;
-    }
-    state=decrypted?{...clone(defaults),...decrypted}:loadPlaintextForMigration();
-    ensureV50();
-
-    if(!auth.encSalt){
-      auth.encSalt=bytesToBase64(encSalt);
-      localStorage.setItem(AUTH_KEY,JSON.stringify(auth));
-    }
-    await saveEncryptedState();
-    removePlaintextCopies();
-    renderAll();
-    hideLock();
-  }catch(e){
-    console.error(e);
-    $("lockError").textContent="処理に失敗しました。もう一度試してください。";
+function saveState() {
+  recordSnapshot();
+  state._savedAt = new Date().toISOString();
+  try {
+    writeLocalCopies(state);
+  } catch (error) {
+    console.warn("端末内の通常保存に失敗しました", error);
   }
-}
-async function lockApp(){
-  await queueEncryptedSave();
-  sessionStorage.removeItem(SESSION_KEY);
-  activeEncryptionKey=null;
-  state=clone(defaults);
-  if(autoLockTimer)clearTimeout(autoLockTimer);
-  showLock(false);
-}
-function resetAutoLock(){
-  if($("lockScreen") && !$("lockScreen").classList.contains("hidden"))return;
-  if(autoLockTimer)clearTimeout(autoLockTimer);
-  autoLockTimer=setTimeout(lockApp,AUTO_LOCK_MS);
-}
-async function changePassword(){
-  const current=prompt("現在のパスワードを入力してください");
-  if(current===null)return;
-  const auth=getAuth();
-  if(!auth)return showLock(true);
-  const currentHash=await hashPassword(current,base64ToBytes(auth.salt));
-  if(currentHash!==auth.hash)return alert("現在のパスワードが違います");
-
-  const next=prompt("新しいパスワードを8文字以上で入力してください");
-  if(next===null)return;
-  if(next.length<8)return alert("8文字以上で入力してください");
-  const confirmNext=prompt("確認のため、もう一度入力してください");
-  if(next!==confirmNext)return alert("パスワードが一致しません");
-
-  try{
-    const authSalt=crypto.getRandomValues(new Uint8Array(16));
-    const encSalt=crypto.getRandomValues(new Uint8Array(16));
-    const nextHash=await hashPassword(next,authSalt);
-    const nextKey=await deriveEncryptionKey(next,encSalt);
-    const payload=await encryptObject(state,nextKey);
-    localStorage.setItem(ENCRYPTED_KEY,JSON.stringify(payload));
-    localStorage.setItem(AUTH_KEY,JSON.stringify({
-      salt:bytesToBase64(authSalt),
-      encSalt:bytesToBase64(encSalt),
-      hash:nextHash
-    }));
-    activeEncryptionKey=nextKey;
-    alert("パスワードを変更し、データを新しい鍵で再暗号化しました");
-  }catch(e){
-    console.error(e);
-    alert("パスワード変更に失敗しました");
+  if (persistentStorageReady) {
+    writeIndexedState(clone(state)).catch(error => {
+      console.warn("端末内の予備保存に失敗しました", error);
+    });
   }
 }
 
-const nowY=new Date().getFullYear();
-const money=v=>`${Number(v||0).toLocaleString("ja-JP",{maximumFractionDigits:1})}万円`;
-const defaults={
- selectedYear:nowY,cash:900,homeValue:4600,vehicleValue:250,otherDebt:0,lastNetWorth:0,dark:false,yearData:{},
- assets:[
-  {owner:"本人",name:"ソフトバンク",value:20.47,pl:8.43},
-  {owner:"本人",name:"MSプレH無",value:160,pl:0},
-  {owner:"本人",name:"eMAXIS Slim",value:1.6,pl:0},
-  {owner:"本人",name:"半導体革命",value:2,pl:0},
-  {owner:"本人",name:"FANG+",value:1.85,pl:0},
-  {owner:"本人",name:"SBI米国高配当",value:9.92,pl:0}
- ],
- insurance:[{name:"学資保険",value:0},{name:"個人年金",value:0}],
- children:[{name:"長女",saved:0,target:500,monthly:1},{name:"次女",saved:0,target:500,monthly:1},{name:"三女",saved:0,target:500,monthly:1}],
- loan:{balance:4400,rate:1.05,payment:10.8,age:40},
- future:{saving:2,invest:7,rate:4,retireAge:65,annualSpend:300},nisa:[{owner:"本人",name:"オルカン",monthly:2.5,startDate:""},{owner:"本人",name:"S&P500",monthly:1.5,startDate:""}],dividends:{}
-};
-const clone=x=>JSON.parse(JSON.stringify(x));
-function load(){return clone(defaults)}
-let state=clone(defaults),owner="本人";
-function save(){queueEncryptedSave()}
-function ensureYear(y){state.yearData=state.yearData||{};state.yearData[y]=state.yearData[y]||{};return state.yearData[y]}
-function years(){const a=Object.keys(state.yearData||{}).map(Number);if(!a.includes(nowY))a.push(nowY);if(!a.includes(+state.selectedYear))a.push(+state.selectedYear);return a.sort((a,b)=>a-b)}
-function fillYears(){["globalYear","bookYear"].forEach(id=>{$(id).innerHTML=years().map(y=>`<option value="${y}" ${y===+state.selectedYear?"selected":""}>${y}年</option>`).join("")})}
-function monthTotal(m,y=state.selectedYear){
- const x=ensureYear(y)[m]||{},receipts=(x.receipts||[]).reduce((a,r)=>a+(+r.amount||0),0)/10000;
- const income=(+x.husband||0)+(+x.wife||0)+(+x.other||0);
- const expense=(+x.living||0)+(+x.mortgage||0)+(+x.insurance||0)+receipts;
- const investment=+x.investment||0,saving=+x.saving||0;
- return {income,expense,investment,saving,net:income-expense-investment-saving};
-}
-function assetValue(x){
- const q=+x.quantity||0,p=+x.currentPrice||0;
- return q>0&&p>=0?q*p/10000:(+x.value||0);
-}
-function assetProfitLoss(x){
- const q=+x.quantity||0,buy=+x.acquisitionPrice||0,now=+x.currentPrice||0;
- return q>0&&buy>=0&&now>=0?q*(now-buy)/10000:(+x.pl||0);
-}
-function totalInvest(o){return state.assets.filter(x=>x.owner===o).reduce((a,x)=>a+assetValue(x),0)}
-function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function today(){return new Date().toISOString().slice(0,10)}
-function monthsSince(dateText){
- if(!dateText)return 0;
- const d=new Date(dateText+"T00:00:00"),n=new Date();
- if(Number.isNaN(d.getTime())||d>n)return 0;
- return (n.getFullYear()-d.getFullYear())*12+n.getMonth()-d.getMonth()+1;
-}
-function drawBars(){
- const c=$("homeChart"),ctx=c.getContext("2d"),w=c.width,h=c.height,rows=Array.from({length:12},(_,i)=>monthTotal(i+1));
- ctx.clearRect(0,0,w,h);const keys=["income","expense","investment","saving"],colors=["#5b7fa3","#c96b6b","#956775","#c9ab6d"];
- const max=Math.max(1,...rows.flatMap(r=>keys.map(k=>r[k]))),left=42,top=20,bottom=40,pw=w-left-10,ph=h-top-bottom,g=pw/12,bw=Math.max(5,g*.14);
- ctx.strokeStyle="#e5e5ea";for(let i=0;i<5;i++){const y=top+i*ph/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-10,y);ctx.stroke()}
- rows.forEach((r,i)=>{keys.forEach((k,j)=>{const bh=r[k]/max*ph,x=left+i*g+g*.08+j*(bw+2);ctx.fillStyle=colors[j];ctx.fillRect(x,top+ph-bh,bw,bh)});ctx.fillStyle="#777";ctx.font="12px sans-serif";ctx.textAlign="center";ctx.fillText(`${i+1}月`,left+i*g+g/2,h-12)});
-}
-
-function ensureV50(){
- if(state.homeValue===undefined)state.homeValue=4600;
- if(state.vehicleValue===undefined)state.vehicleValue=250;
- if(state.otherDebt===undefined)state.otherDebt=0;
- if(state.lastNetWorth===undefined)state.lastNetWorth=0;
- if(state.dark===undefined)state.dark=false;
- if(!Array.isArray(state.nisa))state.nisa=[];
- state.nisa.forEach(x=>{if(!x.owner)x.owner="本人";if(x.startDate===undefined)x.startDate=""});
- state.assets.forEach(x=>{
-  if(!x.owner)x.owner="本人";
-  if(x.dividend===undefined)x.dividend=0;
-  if(x.dividendMonths===undefined)x.dividendMonths="6・12";
-  if(x.inputDate===undefined)x.inputDate="";
-  if(x.quantity===undefined)x.quantity=0;
-  if(x.acquisitionPrice===undefined)x.acquisitionPrice=0;
-  if(x.currentPrice===undefined)x.currentPrice=0;
- });
- if(!state.future.annualSpend)state.future.annualSpend=300;
-}
-ensureV50();
-function financialAssets(){
- return (+state.cash||0)+totalInvest("本人")+totalInvest("夫")+state.insurance.reduce((a,x)=>a+(+x.value||0),0);
-}
-function realAssets(){return (+state.homeValue||0)+(+state.vehicleValue||0)}
-function debts(){return (+state.loan.balance||0)+(+state.otherDebt||0)}
-function netWorth(){return financialAssets()+realAssets()-debts()}
-function drawDonut(canvas,items,legend){
- const ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
- ctx.clearRect(0,0,w,h);
- const vals=items.filter(x=>x.value>0),total=vals.reduce((a,x)=>a+x.value,0);
- if(!total){ctx.fillStyle="#777";ctx.font="18px sans-serif";ctx.textAlign="center";ctx.fillText("データを入力すると表示されます",w/2,h/2);legend.innerHTML="";return}
- const colors=["#956775","#5b7fa3","#c9ab6d","#6f9f7d","#b9807a","#8d78a8"];
- let a=-Math.PI/2,cx=w/2,cy=h/2,r=Math.min(w,h)*.34;
- vals.forEach((x,i)=>{const b=a+x.value/total*Math.PI*2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,a,b);ctx.closePath();ctx.fillStyle=colors[i%colors.length];ctx.fill();a=b});
- ctx.beginPath();ctx.arc(cx,cy,r*.56,0,Math.PI*2);ctx.fillStyle=getComputedStyle(document.body).getPropertyValue("--card").trim()||"#fff";ctx.fill();
- ctx.fillStyle=getComputedStyle(document.body).getPropertyValue("--text").trim()||"#111";ctx.font="bold 22px sans-serif";ctx.textAlign="center";ctx.fillText(money(total),cx,cy+7);
- legend.innerHTML=vals.map((x,i)=>`<div class="legend-item"><span class="dot" style="background:${colors[i%colors.length]}"></span><span>${x.name} ${((x.value/total)*100).toFixed(1)}%</span></div>`).join("");
-}
-function dividendMonths(text){return String(text||"").split(/[・,、\s]+/).map(Number).filter(x=>x>=1&&x<=12)}
-function annualDividendTotal(ownerFilter=null){
- return state.assets.filter(x=>!ownerFilter||x.owner===ownerFilter).reduce((sum,x)=>sum+(+x.dividend||0),0);
-}
-function renderDividends(){
- const months=Array.from({length:12},(_,i)=>({m:i+1,v:0}));
- state.assets.forEach(x=>{const annual=+x.dividend||0,ms=dividendMonths(x.dividendMonths);if(ms.length)ms.forEach(m=>months[m-1].v+=annual/ms.length)});
- $("dividendCalendar").innerHTML=months.map(x=>`<div class="div-month"><span>${x.m}月</span><strong>${Math.round(x.v).toLocaleString()}円</strong></div>`).join("");
- $("annualDividend").textContent=`${Math.round(months.reduce((a,x)=>a+x.v,0)).toLocaleString()}円`;
-}
-function renderNisa(){
- const rows=state.nisa.filter(x=>x.owner===owner);
- $("nisaList").innerHTML=rows.length?rows.map(x=>{const i=state.nisa.indexOf(x),months=monthsSince(x.startDate),paid=(+x.monthly||0)*months;return `<div class="nisa-row"><input data-nisa="${i}" data-field="name" value="${escapeHtml(x.name)}" aria-label="商品名"><input data-nisa="${i}" data-field="monthly" type="number" step=".1" value="${+x.monthly||0}" aria-label="月積立"><input data-nisa="${i}" data-field="startDate" type="date" value="${escapeHtml(x.startDate||"")}" aria-label="購入開始日"><span class="calc-value">${months}か月<br>${money(paid)}</span><button class="mini" data-del-nisa="${i}">削除</button></div>`}).join(""):'<div class="notice">'+owner+'の積立は未登録です。</div>';
- document.querySelectorAll("[data-del-nisa]").forEach(b=>b.onclick=()=>{state.nisa.splice(+b.dataset.delNisa,1);save();renderAll()});
-}
-function fireProjection(retireAge){
- const current=state.loan.age||40;
- let asset=financialAssets();
- for(let age=current;age<90;age++){
-   if(age<retireAge) asset=asset*(1+state.future.rate/100)+(state.future.saving+state.future.invest)*12;
-   else asset=asset*(1+state.future.rate/100)-state.future.annualSpend;
- }
- return asset;
-}
-function renderFire(){
- const target=(state.future.annualSpend||300)*25,gap=Math.max(0,target-financialAssets());
- $("fireTarget").textContent=money(target);$("fireGap").textContent=money(gap);
- [55,60,65].forEach(a=>{$(`fire${a}`).textContent=fireProjection(a)>=0?"○ 可能":"△ 要調整"});
-}
-
-function renderHome(){
- fillYears();
- const inv=totalInvest("本人")+totalInvest("夫"),ins=state.insurance.reduce((a,x)=>a+(+x.value||0),0),net=netWorth(),delta=net-(+state.lastNetWorth||0);
- $("homeCash").textContent=money(state.cash);$("homeInvest").textContent=money(inv);$("homeInsurance").textContent=money(ins);$("homeRealAssets").textContent=money(realAssets());
- $("homeFinancial").textContent=money(financialAssets());$("homeDebt").textContent=money(debts());$("homeNet").textContent=money(net);
- $("netDelta").textContent=`前月比 ${delta>=0?"+":""}${money(delta)}`;$("netDelta").className=`kpi-delta ${delta>=0?"positive":"negative"}`;
- $("baseCash").value=state.cash;$("baseLoan").value=state.loan.balance;$("homeValue").value=state.homeValue;$("vehicleValue").value=state.vehicleValue;$("otherDebt").value=state.otherDebt;$("lastNetWorth").value=state.lastNetWorth;
- drawDonut($("allocationChart"),[
-  {name:"現金",value:+state.cash||0},{name:"投資",value:inv},{name:"保険",value:ins},{name:"自宅",value:+state.homeValue||0},{name:"車・バイク",value:+state.vehicleValue||0}
- ],$("allocationLegend"));
- drawBars();
-}
-function loadBook(){
- fillYears();const m=+$("bookMonth").value,x=ensureYear(state.selectedYear)[m]||{};
- const map={mHusband:"husband",mWife:"wife",mOther:"other",mLiving:"living",mMortgage:"mortgage",mInsurance:"insurance",mInvest:"investment",mSaving:"saving"};
- Object.entries(map).forEach(([id,k])=>$(id).value=x[k]??(k==="mortgage"?state.loan.payment:""));
- renderReceipts();renderYear();
-}
-function saveMonth(){
- const m=+$("bookMonth").value,x=ensureYear(state.selectedYear)[m]||{};
- Object.assign(x,{husband:+$("mHusband").value||0,wife:+$("mWife").value||0,other:+$("mOther").value||0,living:+$("mLiving").value||0,mortgage:+$("mMortgage").value||0,insurance:+$("mInsurance").value||0,investment:+$("mInvest").value||0,saving:+$("mSaving").value||0,receipts:x.receipts||[]});
- ensureYear(state.selectedYear)[m]=x;save();renderAll();alert("保存しました");
-}
-function addReceipt(){const a=+$("receiptAmount").value;if(!a)return;const m=+$("bookMonth").value,x=ensureYear(state.selectedYear)[m]||{};x.receipts=x.receipts||[];x.receipts.push({id:Date.now(),category:$("receiptCategory").value,amount:a});ensureYear(state.selectedYear)[m]=x;$("receiptAmount").value="";save();loadBook();renderHome()}
-function renderReceipts(){const x=ensureYear(state.selectedYear)[+$("bookMonth").value]||{},list=x.receipts||[];$("receiptList").innerHTML=list.map(r=>`<div class="receipt"><span>${r.category}</span><strong>${Number(r.amount).toLocaleString()}円</strong><button class="mini" data-delreceipt="${r.id}">削除</button></div>`).join("");document.querySelectorAll("[data-delreceipt]").forEach(b=>b.onclick=()=>{x.receipts=x.receipts.filter(r=>r.id!==+b.dataset.delreceipt);save();loadBook();renderHome()})}
-function renderYear(){let a={income:0,expense:0,investment:0,saving:0};for(let m=1;m<=12;m++){const t=monthTotal(m);Object.keys(a).forEach(k=>a[k]+=t[k])}$("yearIncome").textContent=money(a.income);$("yearExpense").textContent=money(a.expense);$("yearInvest").textContent=money(a.investment);$("yearSaving").textContent=money(a.saving)}
-function renderInvest(){
- const self=totalInvest("本人"),hus=totalInvest("夫");$("selfTotal").textContent=money(self);$("husbandTotal").textContent=money(hus);$("familyTotal").textContent=money(self+hus);
- const rows=state.assets.filter(x=>x.owner===owner);$("assetRows").innerHTML=rows.length?rows.map(x=>{const i=state.assets.indexOf(x),v=assetValue(x),pl=assetProfitLoss(x);return `<tr><td><input class="date-input" data-asset="${i}" data-field="inputDate" type="date" value="${escapeHtml(x.inputDate||"")}"></td><td><input class="name-input" data-asset="${i}" data-field="name" value="${escapeHtml(x.name)}"></td><td><input class="number-input" data-asset="${i}" data-field="quantity" type="number" step="0.0001" value="${+x.quantity||0}"></td><td><input class="number-input" data-asset="${i}" data-field="acquisitionPrice" type="number" step="0.01" value="${+x.acquisitionPrice||0}"></td><td><input class="number-input" data-asset="${i}" data-field="currentPrice" type="number" step="0.01" value="${+x.currentPrice||0}"></td><td class="calc-value">${money(v)}</td><td class="calc-value ${pl>=0?'positive':'negative'}">${pl>=0?'+':''}${money(pl)}</td><td><input class="number-input" data-asset="${i}" data-field="dividend" type="number" value="${+x.dividend||0}" title="年間配当円"></td><td><input data-asset="${i}" data-field="dividendMonths" value="${escapeHtml(x.dividendMonths||'6・12')}" title="受取月"></td><td><button class="mini" data-del-asset="${i}">削除</button></td></tr>`}).join(""):'<tr><td colspan="10">'+owner+'の保有資産は未登録です。</td></tr>';
- document.querySelectorAll("[data-owner]").forEach(b=>b.classList.toggle("active",b.dataset.owner===owner));
- document.querySelectorAll("[data-del-asset]").forEach(b=>b.onclick=()=>{if(confirm("この保有資産を削除しますか？")){state.assets.splice(+b.dataset.delAsset,1);save();renderAll()}});
-}
-function saveInvest(){document.querySelectorAll("[data-asset]").forEach(el=>{const x=state.assets[+el.dataset.asset],f=el.dataset.field;x[f]=(f==="name"||f==="dividendMonths"||f==="inputDate")?el.value:(+el.value||0);x.value=assetValue(x);x.pl=assetProfitLoss(x)});save();renderAll();alert(owner+"の保有資産を保存しました")}
-function renderEducation(){
- $("insuranceList").innerHTML=state.insurance.map((x,i)=>`<div class="card"><div class="form"><div><label>保険名</label><input data-ins="${i}" data-field="name" value="${x.name}"></div><div><label>現在価値（万円）</label><input data-ins="${i}" data-field="value" type="number" value="${x.value}"></div></div></div>`).join("");
- $("childrenList").innerHTML=state.children.map((x,i)=>{const p=Math.min(100,(+x.saved||0)/(+x.target||1)*100);return `<div class="card"><strong>${x.name}</strong><div class="form"><div><label>準備額（万円）</label><input data-child="${i}" data-field="saved" type="number" value="${x.saved}"></div><div><label>目標額（万円）</label><input data-child="${i}" data-field="target" type="number" value="${x.target}"></div><div><label>月積立（万円）</label><input data-child="${i}" data-field="monthly" type="number" value="${x.monthly}"></div></div><div class="row"><span>達成率</span><strong>${p.toFixed(1)}%</strong></div><div class="progress"><i style="width:${p}%"></i></div></div>`}).join("");
-}
-function saveEducation(){document.querySelectorAll("[data-ins]").forEach(el=>{const x=state.insurance[+el.dataset.ins],f=el.dataset.field;x[f]=(f==="name"||f==="dividendMonths")?el.value:(+el.value||0)});document.querySelectorAll("[data-child]").forEach(el=>{state.children[+el.dataset.child][el.dataset.field]=+el.value||0});save();renderAll();alert("保存しました")}
-function renderLoan(){const l=state.loan;$("loanBalance").value=l.balance;$("loanRate").value=l.rate;$("loanPayment").value=l.payment;$("loanAge").value=l.age;const interest=l.balance*l.rate/100/12,principal=Math.max(0,l.payment-interest);$("loanInterest").textContent=money(interest);$("loanPrincipal").textContent=money(principal);$("loanNext").textContent=money(Math.max(0,l.balance-principal))}
-function project(age){let a=state.cash+totalInvest("本人")+totalInvest("夫")+state.insurance.reduce((s,x)=>s+(+x.value||0),0),cur=state.loan.age;for(let y=cur;y<age;y++)a=a*(1+state.future.rate/100)+(state.future.saving+state.future.invest)*12;return a}
-function renderFuture(){const f=state.future;$("futureSaving").value=f.saving;$("futureInvest").value=f.invest;$("futureRate").value=f.rate;$("retireAge").value=f.retireAge;$("annualSpend").value=f.annualSpend;$("future65").textContent=money(project(65));$("future90").textContent=money(project(90))}
-function renderAll(){renderHome();loadBook();renderInvest();renderDividends();renderNisa();renderEducation();renderLoan();renderFuture();renderFire();document.body.classList.toggle("dark",!!state.dark);$("themeToggle").textContent=state.dark?"☀️":"🌙"}
-$("bookMonth").innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===new Date().getMonth()?"selected":""}>${i+1}月</option>`).join("");
-document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));$(b.dataset.screen).classList.add("active");b.classList.add("active")});
-document.querySelectorAll("[data-owner]").forEach(b=>b.onclick=()=>{owner=b.dataset.owner;renderInvest();renderNisa()});
-$("globalYear").onchange=e=>{state.selectedYear=+e.target.value;save();renderAll()};$("bookYear").onchange=e=>{state.selectedYear=+e.target.value;save();renderAll()};
-$("addYear").onclick=()=>{state.selectedYear=Math.max(...years())+1;ensureYear(state.selectedYear);save();renderAll()};
-$("saveBase").onclick=()=>{state.cash=+$("baseCash").value||0;state.loan.balance=+$("baseLoan").value||0;state.homeValue=+$("homeValue").value||0;state.vehicleValue=+$("vehicleValue").value||0;state.otherDebt=+$("otherDebt").value||0;state.lastNetWorth=+$("lastNetWorth").value||0;save();renderAll();alert("保存しました")};
-$("bookMonth").onchange=loadBook;$("saveMonth").onclick=saveMonth;$("addReceipt").onclick=addReceipt;
-$("newAssetDate").value=today();
-$("newNisaStartDate").value=today();
-$("addAsset").onclick=()=>{const n=$("newAssetName").value.trim();if(!n)return alert("名称を入力してください");const x={owner,name:n,inputDate:$("newAssetDate").value||today(),quantity:+$("newAssetQuantity").value||0,acquisitionPrice:+$("newAssetAcquisitionPrice").value||0,currentPrice:+$("newAssetCurrentPrice").value||0,value:0,pl:0,dividend:0,dividendMonths:"6・12"};x.value=assetValue(x);x.pl=assetProfitLoss(x);state.assets.push(x);["newAssetName","newAssetQuantity","newAssetAcquisitionPrice","newAssetCurrentPrice"].forEach(id=>$(id).value="");$("newAssetDate").value=today();save();renderAll()};$("saveInvest").onclick=saveInvest;
-$("addInsurance").onclick=()=>{const n=$("newInsName").value.trim();if(!n)return;state.insurance.push({name:n,value:+$("newInsValue").value||0});$("newInsName").value="";$("newInsValue").value="";save();renderAll()};$("saveEducation").onclick=saveEducation;
-$("saveLoan").onclick=()=>{state.loan={balance:+$("loanBalance").value||0,rate:+$("loanRate").value||0,payment:+$("loanPayment").value||0,age:+$("loanAge").value||40};save();renderAll();alert("保存しました")};
-$("saveFuture").onclick=()=>{state.future={saving:+$("futureSaving").value||0,invest:+$("futureInvest").value||0,rate:+$("futureRate").value||0,retireAge:+$("retireAge").value||65,annualSpend:+$("annualSpend").value||300};save();renderAll()};
-$("exportData").onclick=async()=>{
-  if(!activeEncryptionKey)return alert("ロックを解除してください");
-  await queueEncryptedSave();
-  const auth=getAuth();
-  const encrypted=JSON.parse(localStorage.getItem(ENCRYPTED_KEY)||"null");
-  const backup={
-    version:"5.3",
-    encrypted:true,
-    exportedAt:new Date().toISOString(),
-    encSalt:auth.encSalt,
-    data:encrypted
-  };
-  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=`サカイ家MONEY_暗号化バックアップ_${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-};
-$("importData").onclick=()=>$("importFile").click();
-$("importFile").onchange=e=>{
-  const file=e.target.files[0];
-  if(!file)return;
-  const r=new FileReader();
-  r.onload=async()=>{
-    try{
-      const backup=JSON.parse(r.result);
-      if(!backup.encrypted||!backup.encSalt||!backup.data)throw new Error("not encrypted");
-      const password=prompt("バックアップ作成時のパスワードを入力してください");
-      if(password===null)return;
-      const backupKey=await deriveEncryptionKey(password,base64ToBytes(backup.encSalt));
-      const restored=await decryptObject(backup.data,backupKey);
-      state={...clone(defaults),...restored};
-      ensureV50();
-      await saveEncryptedState();
-      renderAll();
-      alert("暗号化バックアップを復元しました");
-    }catch(err){
-      console.error(err);
-      alert("復元できませんでした。パスワードまたはバックアップファイルを確認してください。");
-    }finally{
-      e.target.value="";
+async function initializePersistentStorage() {
+  try {
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().catch(() => {});
     }
-  };
-  r.readAsText(file);
-};
 
-$("themeToggle").onclick=()=>{state.dark=!state.dark;save();renderAll()};
-$("addNisa").onclick=()=>{const n=$("newNisaName").value.trim();if(!n)return alert("商品名を入力してください");state.nisa.push({owner,name:n,monthly:+$("newNisaMonthly").value||0,startDate:$("newNisaStartDate").value||today()});$("newNisaName").value="";$("newNisaMonthly").value="";$("newNisaStartDate").value=today();save();renderAll()};
-$("saveNisa").onclick=()=>{document.querySelectorAll("[data-nisa]").forEach(el=>{const x=state.nisa[+el.dataset.nisa],f=el.dataset.field;x[f]=(f==="name"||f==="startDate")?el.value:(+el.value||0)});save();renderAll();alert(owner+"の積立を保存しました")};
+    const indexedState = await readIndexedState();
+    const currentHasData = hasMeaningfulData(state);
+    const indexedHasData = hasMeaningfulData(indexedState);
 
+    if (
+      indexedHasData &&
+      (!currentHasData || stateTimestamp(indexedState) > stateTimestamp(state))
+    ) {
+      state = normalize(indexedState);
+      try {
+        writeLocalCopies(state);
+      } catch (error) {
+        console.warn("復旧データの通常保存に失敗しました", error);
+      }
+      renderAll();
+    }
 
-$("unlockButton").onclick=handleUnlock;
-$("lockPassword").addEventListener("keydown",e=>{if(e.key==="Enter")handleUnlock()});
-$("lockPasswordConfirm").addEventListener("keydown",e=>{if(e.key==="Enter")handleUnlock()});
-$("lockNowButton").onclick=lockApp;
-$("manualLockButton").onclick=lockApp;
-$("changePasswordButton").onclick=changePassword;
-["click","touchstart","keydown","scroll"].forEach(evt=>document.addEventListener(evt,resetAutoLock,{passive:true}));
-document.addEventListener("visibilitychange",()=>{if(document.hidden)queueEncryptedSave()});
-window.addEventListener("pagehide",()=>queueEncryptedSave());
-
-const initialAuth=getAuth();
-if(!initialAuth){
-  showLock(true);
-}else{
-  showLock(false);
+    persistentStorageReady = true;
+    await writeIndexedState(clone(state));
+  } catch (error) {
+    persistentStorageReady = true;
+    console.warn("予備保存の初期化に失敗しました", error);
+  }
 }
 
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js");
-})();
+function saveBeforeClosing() {
+  try {
+    recordSnapshot();
+    state._savedAt = new Date().toISOString();
+    writeLocalCopies(state);
+  } catch (error) {
+    console.warn("終了前の保存に失敗しました", error);
+  }
+}
+function today() { return new Date().toISOString().slice(0, 10); }
+function formatTodayLabel() {
+  return new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(new Date());
+}
+function monthKey(date = today()) { return String(date).slice(0, 7); }
+function monthsSince(dateString) {
+  if (!dateString) return 0;
+  const start = new Date(`${dateString}T00:00:00`), now = new Date();
+  if (start > now) return 0;
+  return (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1;
+}
+function assetMetrics(a) {
+  const q = num(a.quantity), cost = num(a.cost), price = num(a.price);
+  const market = q * price, invested = q * cost, profit = market - invested;
+  return { market, invested, profit, rate: invested ? profit / invested * 100 : 0 };
+}
+function visibleAssets() { return state.assets.filter(a => currentOwner === "家族合計" || normalizeOwner(a.owner) === currentOwner); }
+function visiblePlans() { return state.plans.filter(p => currentOwner === "家族合計" || normalizeOwner(p.owner) === currentOwner); }
+function investmentTotals(owner = null) {
+  const assets = state.assets.filter(a => !owner || normalizeOwner(a.owner) === owner);
+  const plans = state.plans.filter(p => !owner || normalizeOwner(p.owner) === owner);
+  const total = assets.reduce((s, a) => {
+    const m = assetMetrics(a);
+    s.market += m.market; s.invested += m.invested; s.profit += m.profit; s.dividend += num(a.dividend);
+    return s;
+  }, { market: 0, invested: 0, profit: 0, dividend: 0 });
+  for (const p of plans) {
+    const metrics = planMetrics(p);
+    total.market += metrics.value;
+    total.invested += metrics.contributed;
+    total.profit += metrics.profit;
+  }
+  return total;
+}
+function budgetTotals(month = monthKey()) {
+  return state.transactions.filter(t => String(t.date).startsWith(month)).reduce((s, t) => {
+    s[t.kind] += num(t.amount); return s;
+  }, { income: 0, expense: 0 });
+}
+function selectedBudgetMonth() { return $("txMonth")?.value || monthKey(); }
+function budgetLimitFor(month = selectedBudgetMonth()) { return num(state.budgetSettings?.monthlyLimits?.[month]); }
+function categoryExpenseTotals(month = selectedBudgetMonth()) {
+  const grouped = {};
+  for (const t of state.transactions) {
+    if (t.kind !== "expense" || !String(t.date).startsWith(month)) continue;
+    const category = String(t.category || "未分類");
+    grouped[category] = (grouped[category] || 0) + num(t.amount);
+  }
+  return Object.entries(grouped).sort((a, b) => b[1] - a[1]);
+}
+function budgetMonthKeys(anchor = selectedBudgetMonth(), count = 6) {
+  const [year, month] = String(anchor || monthKey()).split("-").map(Number);
+  const keys = [];
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const d = new Date(year, month - 1 - offset, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys;
+}
+function educationTotal() {
+  return num(state.education.child1) + num(state.education.child2) + num(state.education.child3);
+}
+function monthsUntil(dateString) {
+  if (!dateString) return 0;
+  const now = new Date(), end = new Date(`${dateString}T00:00:00`);
+  return Math.max(0, (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth()));
+}
+function goalMetrics(g) {
+  const current = num(g.current), target = num(g.target), monthly = num(g.monthly);
+  const remaining = Math.max(0, target - current), months = monthsUntil(g.deadline);
+  const neededMonthly = months ? Math.ceil(remaining / months) : remaining;
+  const rate = target ? Math.min(100, current / target * 100) : 0;
+  return { current, target, monthly, remaining, months, neededMonthly, rate };
+}
+function mortgageMetrics() {
+  const m = state.mortgage, balance = num(m.balance), annual = num(m.monthly) * 12 + num(m.bonusAnnual);
+  const years = Math.max(0, Number(m.endYear || 0) - new Date().getFullYear());
+  const roughInterest = balance * (num(m.rate) / 100) * years / 2;
+  return { balance, annual, years, roughInterest, afterExtra: Math.max(0, balance - num(m.extra)) };
+}
+function financialAssets() { return num(state.cash) + investmentTotals().market + educationTotal(); }
+function netWorthValue() { return financialAssets() - num(state.loan); }
+function recordSnapshot() {
+  const month = monthKey();
+  const item = { month, financial: financialAssets(), netWorth: netWorthValue(), savedAt: new Date().toISOString() };
+  const index = state.snapshots.findIndex(x => x.month === month);
+  if (index >= 0) state.snapshots[index] = item; else state.snapshots.push(item);
+  state.snapshots = state.snapshots.sort((a, b) => a.month.localeCompare(b.month)).slice(-60);
+}
+function dashboardChanges() {
+  const current = netWorthValue();
+  const now = new Date();
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+  const yearKey = `${now.getFullYear()}-`;
+  const previous = state.snapshots.find(x => x.month === prevKey);
+  const yearFirst = state.snapshots.filter(x => x.month.startsWith(yearKey)).sort((a, b) => a.month.localeCompare(b.month))[0];
+  return {
+    month: previous ? current - Number(previous.netWorth || 0) : null,
+    year: yearFirst ? current - Number(yearFirst.netWorth || 0) : null
+  };
+}
+function renderGreeting() {
+  const h = new Date().getHours();
+  $("greeting").textContent = `${h < 11 ? "おはよう" : h < 18 ? "こんにちは" : "こんばんは"}、ヒロ`;
+}
+function charlieAdviceItems() {
+  const items = [];
+  const inv = investmentTotals(), budget = budgetTotals(), financial = financialAssets();
+  const balance = budget.income - budget.expense;
+  if (!state.transactions.length) items.push({ icon: "✍️", tone: "neutral", text: "家計を入力すると、今月の使い方をもっと詳しく分析できます。" });
+  else if (balance >= 0) items.push({ icon: "◎", tone: "good", text: `今月は${yen(balance)}の黒字です。この調子で無理なく続けましょう。` });
+  else items.push({ icon: "!", tone: "warn", text: `今月は${yen(Math.abs(balance))}の赤字です。支出の大きい項目を一度確認してみましょう。` });
+
+  const currentLimit = budgetLimitFor(monthKey());
+  if (currentLimit && budget.expense > currentLimit) items.push({ icon: "⚠", tone: "warn", text: `今月の支出は予算を${yen(budget.expense - currentLimit)}超えています。家計画面で内訳を確認しましょう。` });
+  else if (currentLimit && budget.expense > currentLimit * .85) items.push({ icon: "△", tone: "neutral", text: `今月の支出予算は残り${yen(Math.max(0, currentLimit - budget.expense))}です。` });
+
+  if (state.assets.length) {
+    const ranked = state.assets.map(a => ({ a, market: assetMetrics(a).market })).sort((x,y)=>y.market-x.market);
+    const top = ranked[0], ratio = inv.market ? top.market / inv.market * 100 : 0;
+    if (ratio >= 40) items.push({ icon: "⚖", tone: "warn", text: `${top.a.name}が投資評価額の約${ratio.toFixed(0)}%です。値動きの影響が大きい配分になっています。` });
+    else if (inv.profit >= 0) items.push({ icon: "↗", tone: "good", text: `投資全体は${yen(inv.profit)}のプラスです。短期の変動に慌てず、計画を優先しましょう。` });
+    else items.push({ icon: "↘", tone: "neutral", text: `投資全体は${yen(Math.abs(inv.profit))}の含み損です。生活資金と分けて長期目線で確認しましょう。` });
+  } else items.push({ icon: "↗", tone: "neutral", text: "保有資産を登録すると、銘柄の偏りや投資損益を分析できます。" });
+
+  const goal = num(state.assetGoal), rate = goal ? financial / goal * 100 : 0;
+  if (goal && rate >= 100) items.push({ icon: "★", tone: "good", text: `資産目標${yen(goal)}を達成しています。次の目標を設定してもよさそうです。` });
+  else if (goal) items.push({ icon: "●", tone: "neutral", text: `資産目標まであと${yen(Math.max(0, goal-financial))}、達成率は${rate.toFixed(1)}%です。` });
+
+  const next = [...state.lifeEvents].filter(e => Number(e.year) >= new Date().getFullYear()).sort((a,b)=>Number(a.year)-Number(b.year))[0];
+  if (next) items.push({ icon: "○", tone: "neutral", text: `次の予定は${next.year}年「${next.person}・${next.title}」です${num(next.cost) ? `。予定費用は${yen(next.cost)}です` : ""}。` });
+  const behind = state.savingsGoals.map(g => ({ g, m: goalMetrics(g) })).filter(x => x.m.months > 0 && x.m.monthly < x.m.neededMonthly).sort((a,b)=>(b.m.neededMonthly-b.m.monthly)-(a.m.neededMonthly-a.m.monthly))[0];
+  if (behind) items.push({ icon: "⏳", tone: "warn", text: `${behind.g.name}は、目標日に間に合わせるには月${yen(behind.m.neededMonthly)}が目安です。現在より${yen(Math.max(0, behind.m.neededMonthly-behind.m.monthly))}増やすと近づきます。` });
+  else if (state.savingsGoals.length) items.push({ icon: "✓", tone: "good", text: "目的別積立は、登録した目標ペースにおおむね沿っています。" });
+  return items.slice(0,5);
+}
+function renderCharlieAdvice() {
+  const items = charlieAdviceItems();
+  $("charlieAdvice").innerHTML = items.map(x => `<div class="advice-item ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
+}
+function renderHome() {
+  recordSnapshot();
+  const inv = investmentTotals(), budget = budgetTotals();
+  const financial = financialAssets(), netWorth = netWorthValue();
+  $("netWorth").textContent = yen(netWorth);
+  $("netWorthSub").textContent = `金融資産 ${yen(financial)} − ローン ${yen(state.loan)}`;
+  $("cashSummary").textContent = yen(state.cash);
+  $("investmentSummary").textContent = yen(inv.market);
+  $("monthlyBalance").textContent = yen(budget.income - budget.expense);
+  $("monthlyBalance").className = budget.income - budget.expense < 0 ? "negative" : "positive";
+  $("monthlyPlans").textContent = yen(state.plans.reduce((s, p) => s + (p.method === "lump" ? 0 : num(p.monthly)), 0) + num(state.education.monthly));
+  $("incomeTotal").textContent = yen(budget.income);
+  $("expenseTotal").textContent = yen(budget.expense);
+  $("dividendTotal").textContent = yen(inv.dividend);
+  $("profitTotal").textContent = yen(inv.profit);
+  $("profitTotal").className = inv.profit < 0 ? "negative" : "positive";
+
+  const changes = dashboardChanges();
+  setChangeMetric("monthChange", "monthChangeSub", changes.month, "前月末との比較");
+  setChangeMetric("yearChange", "yearChangeSub", changes.year, "年初との比較");
+  $("dashboardDividend").textContent = yen(inv.dividend);
+
+  const goal = num(state.assetGoal), rate = goal ? Math.min(100, financial / goal * 100) : 0;
+  $("goalRate").textContent = `${rate.toFixed(1)}%`;
+  $("goalSub").textContent = goal ? `金融資産 ${yen(financial)}` : "目標を設定してください";
+  $("goalAmount").textContent = yen(goal);
+  $("goalRemaining").textContent = financial >= goal ? "目標達成！" : `あと ${yen(Math.max(0, goal - financial))}`;
+  $("goalProgress").style.width = `${rate}%`;
+
+  drawAllocation();
+  drawTrend();
+  renderCharlieAdvice();
+}
+function setChangeMetric(valueId, subId, value, label) {
+  const el = $(valueId);
+  if (value == null) {
+    el.textContent = "—"; el.className = ""; $(subId).textContent = "記録をためると表示"; return;
+  }
+  el.textContent = signedYen(value);
+  el.className = value < 0 ? "negative" : "positive";
+  $(subId).textContent = label;
+}
+function drawAllocation() {
+  const inv = investmentTotals().market, edu = educationTotal();
+  const parts = [
+    { name: "預金", value: num(state.cash), color: "#9a6f7f" },
+    { name: "投資", value: inv, color: "#c29a6b" },
+    { name: "教育", value: edu, color: "#78958a" }
+  ].filter(x => x.value > 0);
+  const canvas = $("allocationChart"), ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 320, h = 220;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  const total = parts.reduce((s, p) => s + p.value, 0), cx = w / 2, cy = 95, r = 72, inner = 42;
+  if (!total) {
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--surface2");
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted");
+    ctx.textAlign = "center"; ctx.font = "13px sans-serif";
+    ctx.fillText("データを入力すると表示されます", cx, cy + 5);
+    $("allocationLegend").innerHTML = ""; return;
+  }
+  let start = -Math.PI / 2;
+  for (const p of parts) {
+    const angle = Math.PI * 2 * p.value / total;
+    ctx.beginPath(); ctx.arc(cx, cy, r, start, start + angle); ctx.arc(cx, cy, inner, start + angle, start, true); ctx.closePath();
+    ctx.fillStyle = p.color; ctx.fill(); start += angle;
+  }
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--text");
+  ctx.textAlign = "center"; ctx.font = "700 14px sans-serif"; ctx.fillText("金融資産", cx, cy - 2);
+  ctx.font = "800 17px sans-serif"; ctx.fillText(yen(total), cx, cy + 20);
+  $("allocationLegend").innerHTML = parts.map(p => `<span><i style="background:${p.color}"></i>${p.name} ${Math.round(p.value / total * 100)}%</span>`).join("");
+}
+function drawTrend() {
+  const canvas = $("trendChart"), ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = 260;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  const data = [...state.snapshots].sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+  const text = getComputedStyle(document.body).getPropertyValue("--text").trim();
+  const muted = getComputedStyle(document.body).getPropertyValue("--muted").trim();
+  const line = getComputedStyle(document.body).getPropertyValue("--line").trim();
+  const accent = getComputedStyle(document.body).getPropertyValue("--accent").trim();
+  if (!data.length) return;
+  const pad = { left: 56, right: 16, top: 18, bottom: 38 };
+  const values = data.map(x => Number(x.netWorth || 0));
+  let min = Math.min(...values), max = Math.max(...values);
+  if (min === max) { min -= Math.max(100000, Math.abs(min) * .05); max += Math.max(100000, Math.abs(max) * .05); }
+  const range = max - min || 1;
+  const x = i => pad.left + (data.length === 1 ? (w - pad.left - pad.right) / 2 : i * (w - pad.left - pad.right) / (data.length - 1));
+  const y = v => pad.top + (max - v) / range * (h - pad.top - pad.bottom);
+  ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.font = "10px sans-serif"; ctx.fillStyle = muted; ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i++) {
+    const yy = pad.top + i * (h - pad.top - pad.bottom) / 4;
+    const val = max - i * range / 4;
+    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(w - pad.right, yy); ctx.stroke();
+    ctx.fillText(`${Math.round(val / 10000)}万`, pad.left - 7, yy + 3);
+  }
+  ctx.beginPath(); data.forEach((d, i) => i ? ctx.lineTo(x(i), y(values[i])) : ctx.moveTo(x(i), y(values[i])));
+  ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke();
+  data.forEach((d, i) => {
+    ctx.beginPath(); ctx.arc(x(i), y(values[i]), 4, 0, Math.PI * 2); ctx.fillStyle = accent; ctx.fill();
+    ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.font = "10px sans-serif";
+    ctx.fillText(d.month.slice(5) + "月", x(i), h - 14);
+  });
+  ctx.fillStyle = text; ctx.textAlign = "center"; ctx.font = "700 12px sans-serif";
+  ctx.fillText(yen(values[values.length - 1]), x(values.length - 1), Math.max(12, y(values[values.length - 1]) - 10));
+  $("trendNote").textContent = data.length < 2 ? "今月分を記録しました。来月以降、推移が線でつながります。" : `直近${data.length}か月の純資産推移です。`;
+}
+function setupMonthOptions() {
+  const previous = $("txMonth").value;
+  const months = new Set(state.transactions.map(t => monthKey(t.date)));
+  const now = new Date();
+  for (let i = 0; i < 12; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const values = [...months].sort().reverse();
+  $("txMonth").innerHTML = values.map(m => {
+    const [y, mo] = m.split("-");
+    return `<option value="${m}">${y}年${Number(mo)}月</option>`;
+  }).join("");
+  $("txMonth").value = values.includes(previous) ? previous : (values.includes(monthKey()) ? monthKey() : values[0]);
+}
+function renderBudgetDashboard() {
+  const month = selectedBudgetMonth(), totals = budgetTotals(month), balance = totals.income - totals.expense;
+  const monthItems = state.transactions.filter(t => String(t.date).startsWith(month));
+  const incomeCount = monthItems.filter(t => t.kind === "income").length;
+  const expenseCount = monthItems.filter(t => t.kind === "expense").length;
+  const savingsRate = totals.income ? balance / totals.income * 100 : 0;
+  $("budgetIncomeSummary").textContent = yen(totals.income);
+  $("budgetExpenseSummary").textContent = yen(totals.expense);
+  $("budgetBalanceSummary").textContent = yen(balance);
+  $("budgetBalanceSummary").className = balance < 0 ? "negative" : "positive";
+  $("budgetSavingsRate").textContent = `${savingsRate.toFixed(1)}%`;
+  $("budgetSavingsRate").className = savingsRate < 0 ? "negative" : "positive";
+  $("budgetIncomeCount").textContent = `${incomeCount}件`;
+  $("budgetExpenseCount").textContent = `${expenseCount}件`;
+  $("budgetTxCount").textContent = `${monthItems.length}件`;
+
+  const limit = budgetLimitFor(month), remaining = limit - totals.expense;
+  $("budgetLimitInput").value = limit || "";
+  $("budgetLimitLabel").textContent = limit ? yen(limit) : "未設定";
+  $("budgetSpentText").textContent = `支出 ${yen(totals.expense)}`;
+  const usage = limit ? totals.expense / limit * 100 : 0;
+  $("budgetUsageProgress").style.width = `${Math.min(100, usage)}%`;
+  $("budgetUsageProgress").classList.toggle("over", Boolean(limit && totals.expense > limit));
+  $("budgetUsageText").textContent = limit ? `使用率 ${usage.toFixed(1)}%` : "使用率 0%";
+  $("budgetRemainingText").textContent = !limit ? "予算を設定すると使いすぎを確認できます" : remaining >= 0 ? `残り ${yen(remaining)}` : `${yen(Math.abs(remaining))} 予算オーバー`;
+  $("budgetRemainingText").className = limit && remaining < 0 ? "negative" : "";
+
+  renderCategoryBreakdown(month, totals.expense);
+  drawBudgetTrend(month);
+}
+function renderCategoryBreakdown(month, totalExpense) {
+  const items = categoryExpenseTotals(month);
+  $("categoryBreakdown").innerHTML = items.length ? items.map(([name, value], index) => {
+    const rate = totalExpense ? value / totalExpense * 100 : 0;
+    return `<div class="category-row"><div class="category-row-head"><span><i>${index + 1}</i>${escapeHtml(name)}</span><strong>${yen(value)}</strong></div><div class="category-track"><div style="width:${rate}%"></div></div><small>${rate.toFixed(1)}%</small></div>`;
+  }).join("") : `<div class="empty budget-empty">この月の支出を入力すると、カテゴリ別に表示します。</div>`;
+}
+function drawBudgetTrend(anchorMonth = selectedBudgetMonth()) {
+  const canvas = $("budgetTrendChart"); if (!canvas) return;
+  const ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = 260;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  const months = budgetMonthKeys(anchorMonth, 6);
+  const values = months.map(m => ({ month: m, ...budgetTotals(m) }));
+  const max = Math.max(1, ...values.flatMap(v => [v.income, v.expense]));
+  const muted = getComputedStyle(document.body).getPropertyValue("--muted").trim();
+  const line = getComputedStyle(document.body).getPropertyValue("--line").trim();
+  const good = getComputedStyle(document.body).getPropertyValue("--good").trim();
+  const bad = getComputedStyle(document.body).getPropertyValue("--bad").trim();
+  const pad = { left: 45, right: 10, top: 18, bottom: 38 }, chartH = h - pad.top - pad.bottom;
+  ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.font = "10px sans-serif"; ctx.fillStyle = muted; ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + chartH * i / 4, value = max * (1 - i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillText(`${Math.round(value / 10000)}万`, pad.left - 6, y + 3);
+  }
+  const groupW = (w - pad.left - pad.right) / months.length, barW = Math.min(22, groupW * .27);
+  values.forEach((v, i) => {
+    const center = pad.left + groupW * i + groupW / 2;
+    const incomeH = chartH * v.income / max, expenseH = chartH * v.expense / max;
+    ctx.fillStyle = good; ctx.fillRect(center - barW - 2, pad.top + chartH - incomeH, barW, incomeH);
+    ctx.fillStyle = bad; ctx.fillRect(center + 2, pad.top + chartH - expenseH, barW, expenseH);
+    ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.font = "10px sans-serif";
+    ctx.fillText(`${Number(v.month.slice(5))}月`, center, h - 16);
+  });
+  ctx.textAlign = "left"; ctx.font = "11px sans-serif";
+  ctx.fillStyle = good; ctx.fillRect(pad.left, 4, 10, 10); ctx.fillStyle = muted; ctx.fillText("収入", pad.left + 15, 13);
+  ctx.fillStyle = bad; ctx.fillRect(pad.left + 58, 4, 10, 10); ctx.fillStyle = muted; ctx.fillText("支出", pad.left + 73, 13);
+}
+function renderTransactions() {
+  setupMonthOptions();
+  const query = $("txSearch").value.trim().toLowerCase(), month = selectedBudgetMonth();
+  const list = state.transactions.filter(t => String(t.date).startsWith(month) && `${t.category} ${t.memo}`.toLowerCase().includes(query)).sort((a, b) => b.date.localeCompare(a.date));
+  $("txList").innerHTML = list.length ? list.map(t => `<article class="item-card compact transaction-card"><div><div class="item-title">${escapeHtml(t.category || "未分類")}</div><div class="item-sub">${escapeHtml(t.date)}${t.memo ? `・${escapeHtml(t.memo)}` : ""}</div></div><div class="tx-right"><strong class="${t.kind === 'expense' ? 'negative' : 'positive'}">${t.kind === 'expense' ? '-' : '+'}${yen(t.amount)}</strong><div class="tx-actions"><button class="edit-button" data-edit-tx="${t.id}">編集</button><button class="delete-button" data-delete-tx="${t.id}">削除</button></div></div></article>`).join("") : `<div class="empty">この月の記録はありません。</div>`;
+  renderBudgetDashboard();
+}
+function assetDividendYield(a) {
+  const m = assetMetrics(a);
+  return m.invested ? num(a.dividend) / m.invested * 100 : 0;
+}
+function planMetrics(p) {
+  const method = p.method === "lump" ? "lump" : "monthly";
+  const months = method === "monthly" ? monthsSince(p.start) : 0;
+  const estimated = method === "monthly" ? months * num(p.monthly) : 0;
+  const hasActualInvested = p.invested !== "" && p.invested != null;
+  const contributed = hasActualInvested ? num(p.invested) : estimated;
+  const value = p.value === "" || p.value == null ? contributed : num(p.value);
+  return {
+    method,
+    months,
+    estimated,
+    contributed,
+    value,
+    profit: value - contributed,
+    contributionSource: hasActualInvested ? "actual" : "estimated"
+  };
+}
+function investmentAnalysis() {
+  const assets = visibleAssets(), plans = visiblePlans();
+  const totals = assets.reduce((acc, a) => {
+    const m = assetMetrics(a);
+    acc.market += m.market; acc.invested += m.invested; acc.profit += m.profit; acc.dividend += num(a.dividend);
+    return acc;
+  }, { market: 0, invested: 0, profit: 0, dividend: 0 });
+  for (const p of plans) {
+    const m = planMetrics(p);
+    totals.market += m.value; totals.invested += m.contributed; totals.profit += m.profit;
+  }
+  totals.profitRate = totals.invested ? totals.profit / totals.invested * 100 : 0;
+  totals.yieldRate = totals.invested ? totals.dividend / totals.invested * 100 : 0;
+  totals.assetCount = assets.length;
+  totals.planCount = plans.length;
+  totals.count = assets.length + plans.length;
+  totals.monthlyPlan = plans.reduce((sum, p) => sum + num(p.monthly), 0);
+  totals.missingPrices = assets.filter(a => num(a.quantity) > 0 && num(a.price) <= 0).length;
+  return totals;
+}
+function renderInvestmentAnalysis() {
+  const t = investmentAnalysis();
+  $("analysisInvested").textContent = yen(t.invested);
+  $("analysisProfitRate").textContent = `${t.profitRate >= 0 ? "+" : ""}${t.profitRate.toFixed(1)}%`;
+  $("analysisProfitRate").className = t.profitRate < 0 ? "negative" : "positive";
+  $("analysisYield").textContent = `利回り ${t.yieldRate.toFixed(2)}%`;
+  $("analysisCount").textContent = `${t.count}商品`;
+  $("assetPlanCountSub").textContent = `資産${t.assetCount}・積立${t.planCount}`;
+  $("investMonthlyPlanSummary").textContent = yen(t.monthlyPlan);
+  $("investAnnualPlanSummary").textContent = `年間 ${yen(t.monthlyPlan * 12)}`;
+  $("missingPriceCount").textContent = `${t.missingPrices}件`;
+  $("missingPriceCount").className = t.missingPrices ? "negative" : "positive";
+  drawInvestmentAllocation();
+  renderInvestmentAccountBreakdown();
+  renderInvestmentInsights();
+}
+function drawInvestmentAllocation() {
+  const canvas = $("investmentAllocationChart"), ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = 230;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  const colors = ["#8957e5", "#d946a2", "#2f8f71", "#f59e0b", "#64748b", "#0ea5e9"];
+  const grouped = {};
+  for (const a of visibleAssets()) grouped[a.type || "その他"] = (grouped[a.type || "その他"] || 0) + assetMetrics(a).market;
+  for (const p of visiblePlans()) grouped["積立・NISA"] = (grouped["積立・NISA"] || 0) + planMetrics(p).value;
+  const parts = Object.entries(grouped).map(([name, value], i) => ({ name, value, color: colors[i % colors.length] })).filter(x => x.value > 0).sort((a,b)=>b.value-a.value);
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  if (!total) {
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.textAlign = "center"; ctx.font = "13px sans-serif";
+    ctx.fillText("保有資産を登録すると表示されます", w / 2, h / 2); $("investmentAllocationLegend").innerHTML = ""; return;
+  }
+  const left = 18, right = 18, top = 26, barH = 32, usable = w - left - right;
+  let x = left;
+  for (const p of parts) {
+    const bw = usable * p.value / total; ctx.fillStyle = p.color; ctx.fillRect(x, top, Math.max(1,bw), barH); x += bw;
+  }
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--text"); ctx.font = "800 24px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText(yen(total), w / 2, 111);
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted"); ctx.font = "12px sans-serif"; ctx.fillText("投資評価額", w / 2, 133);
+  $("investmentAllocationLegend").innerHTML = parts.map(p => `<span><i style="background:${p.color}"></i>${escapeHtml(p.name)} ${Math.round(p.value / total * 100)}%</span>`).join("");
+}
+function investmentAccountParts() {
+  const grouped = {};
+  for (const a of visibleAssets()) grouped[a.account || "未設定"] = (grouped[a.account || "未設定"] || 0) + assetMetrics(a).market;
+  for (const p of visiblePlans()) grouped[p.account || "未設定"] = (grouped[p.account || "未設定"] || 0) + planMetrics(p).value;
+  return Object.entries(grouped).map(([name,value])=>({name,value})).filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
+}
+function renderInvestmentAccountBreakdown() {
+  const parts = investmentAccountParts();
+  const total = parts.reduce((s,p)=>s+p.value,0);
+  $("accountBreakdown").innerHTML = parts.length ? parts.map((p,i)=>{
+    const rate = total ? p.value/total*100 : 0;
+    return `<div class="account-row"><div class="account-row-head"><span>${escapeHtml(p.name)}</span><strong>${yen(p.value)}</strong></div><div class="account-track"><div style="width:${rate}%"></div></div><small>${rate.toFixed(1)}%</small></div>`;
+  }).join("") : '<div class="empty compact-empty">口座情報がありません。</div>';
+}
+function renderInvestmentInsights() {
+  const assets = visibleAssets(), plans = visiblePlans(), totals = investmentAnalysis();
+  const items = [];
+  const valued = assets.map(a=>({name:a.name,market:assetMetrics(a).market})).filter(x=>x.market>0).sort((a,b)=>b.market-a.market);
+  if (valued.length && totals.market) {
+    const topRate = valued[0].market / totals.market * 100;
+    if (topRate >= 45) items.push({tone:"warn", icon:"!", text:`${valued[0].name}が投資全体の${topRate.toFixed(0)}%。1商品への偏りが大きめです。`});
+    else items.push({tone:"good", icon:"✓", text:`最大の商品比率は${topRate.toFixed(0)}%。極端な集中は見られません。`});
+  }
+  if (totals.missingPrices) items.push({tone:"warn", icon:"¥", text:`現在価格が未入力の商品が${totals.missingPrices}件あります。入力すると損益が正確になります。`});
+  if (totals.monthlyPlan) items.push({tone:"good", icon:"↻", text:`毎月${yen(totals.monthlyPlan)}、年間では${yen(totals.monthlyPlan*12)}を積み立てる設定です。`});
+  const noDividendMonth = assets.filter(a => num(a.dividend) > 0 && !parseDividendMonths(a.dividendMonths).length).length;
+  if (noDividendMonth) items.push({tone:"warn", icon:"月", text:`配当月が未入力の商品が${noDividendMonth}件あります。配当カレンダーに反映するには月を入力してください。`});
+  if (!items.length) items.push({tone:"neutral", icon:"i", text:"保有資産や積立を登録すると、投資バランスを自動で確認します。"});
+  $("investmentInsightList").innerHTML = items.slice(0,4).map(x=>`<div class="investment-insight ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
+}
+function renderRanking() {
+  const assets = visibleAssets().map(a => ({ a, m: assetMetrics(a), yieldRate: assetDividendYield(a) }));
+  const sorted = [...assets].sort((x, y) => currentRanking === "market" ? y.m.market - x.m.market : currentRanking === "profit" ? y.m.profit - x.m.profit : y.yieldRate - x.yieldRate).slice(0, 8);
+  const totalMarket = assets.reduce((s,x)=>s+x.m.market,0);
+  $("rankingList").innerHTML = sorted.length ? sorted.map((x, i) => {
+    const value = currentRanking === "market" ? yen(x.m.market) : currentRanking === "profit" ? signedYen(x.m.profit) : `${x.yieldRate.toFixed(2)}%`;
+    const cls = currentRanking === "profit" ? (x.m.profit < 0 ? "negative" : "positive") : "";
+    const share = totalMarket ? x.m.market/totalMarket*100 : 0;
+    return `<article class="ranking-item"><span class="rank-badge">${i + 1}</span><div class="ranking-main"><strong>${escapeHtml(x.a.name)}</strong><small>${escapeHtml(x.a.type)}・${escapeHtml(x.a.owner)}・構成比${share.toFixed(1)}%</small><div class="ranking-track"><div style="width:${Math.min(100,share)}%"></div></div></div><b class="${cls}">${value}</b></article>`;
+  }).join("") : `<div class="empty">ランキングを表示する保有資産がありません。</div>`;
+}
+function renderOwnerSummary() {
+  const t = currentOwner === "家族合計" ? investmentTotals() : investmentTotals(currentOwner);
+  $("ownerMarket").textContent = yen(t.market); $("ownerProfit").textContent = signedYen(t.profit);
+  $("ownerProfit").className = t.profit < 0 ? "negative" : "positive"; $("ownerDividend").textContent = yen(t.dividend);
+  $("investOwnerLabel").textContent = currentOwner === "家族合計" ? "家族の投資資産" : `${currentOwner}の投資資産`;
+  const editable = currentOwner !== "家族合計";
+  $("assetFormWrap").classList.toggle("hidden", !editable); $("planFormWrap").classList.toggle("hidden", !editable);
+}
+function renderAssets() {
+  const q = $("assetSearch").value.trim().toLowerCase(), filter = $("assetFilter").value, sort = $("assetSort").value;
+  const allVisible = visibleAssets();
+  const totalMarket = allVisible.reduce((s,a)=>s+assetMetrics(a).market,0);
+  const list = allVisible.filter(a => (filter === "all" || a.type === filter) && `${a.name} ${a.broker || ""}`.toLowerCase().includes(q)).sort((a, b) => {
+    const am = assetMetrics(a), bm = assetMetrics(b);
+    if (sort === "profitDesc") return bm.profit - am.profit;
+    if (sort === "profitAsc") return am.profit - bm.profit;
+    if (sort === "yieldDesc") return assetDividendYield(b) - assetDividendYield(a);
+    if (sort === "nameAsc") return String(a.name).localeCompare(String(b.name), "ja");
+    return bm.market - am.market;
+  });
+  $("assetCountLabel").textContent = `${list.length}件`;
+  $("assetList").innerHTML = list.length ? list.map(a => {
+    const m = assetMetrics(a), share = totalMarket ? m.market/totalMarket*100 : 0;
+    const priceMissing = num(a.quantity)>0 && num(a.price)<=0;
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${escapeHtml(a.type)}</span><span class="account-chip">${escapeHtml(a.account)}</span>${priceMissing?'<span class="missing-chip">価格未入力</span>':''}</div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}・構成比 ${share.toFixed(1)}%</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="holding-progress"><div style="width:${Math.min(100,share)}%"></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
+  }).join("") : `<div class="empty">条件に合う保有資産はありません。</div>`;
+}
+function renderPlans() {
+  const list = visiblePlans();
+  const totals = list.reduce((acc, p) => {
+    const m = planMetrics(p);
+    if (m.method === "monthly") acc.monthly += num(p.monthly);
+    acc.value += m.value;
+    acc.contributed += m.contributed;
+    acc.profit += m.profit;
+    return acc;
+  }, { monthly: 0, value: 0, contributed: 0, profit: 0 });
+  $("planCountLabel").textContent = `${list.length}件`;
+  $("planMonthlyTotalView").textContent = yen(totals.monthly);
+  $("planAnnualTotalView").textContent = yen(totals.monthly * 12);
+  $("planInvestedTotalView").textContent = yen(totals.contributed);
+  $("planValueTotalView").textContent = yen(totals.value);
+  $("planProfitTotalView").textContent = signedYen(totals.profit);
+  $("planProfitTotalView").className = totals.profit < 0 ? "negative" : "positive";
+  $("planList").innerHTML = list.length ? list.map(p => {
+    const m = planMetrics(p);
+    const methodLabel = m.method === "monthly" ? "毎月積立" : "一括購入";
+    const mainAmount = m.method === "monthly" ? `月 ${yen(p.monthly)}` : "一括購入";
+    const periodLabel = m.method === "monthly" ? "積立月数" : "買付方法";
+    const periodValue = m.method === "monthly" ? `${m.months}か月` : "一括";
+    const sourceChip = m.contributionSource === "estimated" ? '<span class="estimate-chip">元本は推定</span>' : '';
+    const profitLabel = m.contributionSource === "estimated" ? "推定評価損益" : "評価損益";
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
+  }).join("") : `<div class="empty">積立・NISA商品はまだありません。</div>`;
+}
+function renderDividendCalendar() {
+  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [] }));
+  for (const a of visibleAssets()) {
+    const dividend = num(a.dividend), ms = parseDividendMonths(a.dividendMonths);
+    if (!ms.length) continue;
+    for (const m of ms) { months[m - 1].amount += dividend / ms.length; months[m - 1].names.push(a.name); }
+  }
+  const annual = months.reduce((s,m)=>s+m.amount,0), currentMonth = new Date().getMonth()+1;
+  const upcoming = [...months.slice(currentMonth-1), ...months.slice(0,currentMonth-1)].find(m=>m.amount>0);
+  $("dividendAnnualView").textContent = yen(annual);
+  $("dividendNextView").textContent = upcoming ? `${upcoming.month}月 ${yen(upcoming.amount)}` : "未設定";
+  $("dividendCalendar").innerHTML = months.map(m => `<div class="month-cell ${m.amount ? 'has-dividend' : ''}"><span>${m.month}月</span><strong>${yen(m.amount)}</strong><small>${escapeHtml([...new Set(m.names)].join("・"))}</small></div>`).join("");
+}
+function setInvestmentView(view) {
+  currentInvestmentView = view;
+  const map = { assets:"investmentAssetsView", plans:"investmentPlansView", ranking:"investmentRankingView", dividend:"investmentDividendView" };
+  document.querySelectorAll(".investment-view-tab").forEach(b=>b.classList.toggle("active",b.dataset.investView===view));
+  document.querySelectorAll(".investment-view").forEach(v=>v.classList.toggle("active",v.id===map[view]));
+  if (view === "ranking") renderRanking();
+  if (view === "dividend") renderDividendCalendar();
+}
+function renderLifeEvents() {
+  const list = [...state.lifeEvents].sort((a,b) => Number(a.year)-Number(b.year) || String(a.title).localeCompare(String(b.title), "ja"));
+  $("lifeEventList").innerHTML = list.length ? list.map(e => `<article class="timeline-item"><div class="timeline-year">${escapeHtml(e.year)}</div><div class="timeline-dot"></div><div class="timeline-card"><div><strong>${escapeHtml(e.person)}｜${escapeHtml(e.title)}</strong><small>${num(e.cost) ? `予定費用 ${yen(e.cost)}` : "費用未設定"}</small></div><div class="item-actions"><button class="edit-button" data-edit-event="${e.id}">編集</button><button class="delete-button" data-delete-event="${e.id}">削除</button></div></div></article>`).join("") : `<div class="empty">予定はまだありません。</div>`;
+}
+function clearEventForm() {
+  $("eventId").value = ""; $("eventYear").value = ""; $("eventTitle").value = ""; $("eventCost").value = ""; $("eventPerson").value = "家族";
+  $("saveEventButton").textContent = "予定を追加"; $("cancelEventEdit").classList.add("hidden");
+}
+function renderMortgage() {
+  const m = state.mortgage, x = mortgageMetrics();
+  $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
+  $("mortgageBonus").value = m.bonusAnnual || ""; $("mortgageEndYear").value = m.endYear || ""; $("mortgageExtra").value = m.extra || "";
+  $("mortgageAnnualSummary").textContent = yen(x.annual);
+  $("mortgageYearsSummary").textContent = x.years ? `約${x.years}年` : "—";
+  $("mortgageInterestSummary").textContent = yen(x.roughInterest);
+  $("mortgageAfterExtraSummary").textContent = yen(x.afterExtra);
+}
+function educationProgressCard(name, current, target) {
+  const rate = target ? Math.min(100, current / target * 100) : 0;
+  return `<article class="card progress-card"><div class="progress-title"><div><span>${name}</span><strong>${yen(current)} / ${yen(target)}</strong></div><b>${rate.toFixed(1)}%</b></div><div class="progress-track"><div class="progress-bar" style="width:${rate}%"></div></div><small>あと ${yen(Math.max(0,target-current))}</small></article>`;
+}
+function renderEducation() {
+  const e = state.education;
+  $("edu1").value = e.child1 || ""; $("edu2").value = e.child2 || ""; $("edu3").value = e.child3 || ""; $("eduMonthly").value = e.monthly || "";
+  $("edu1Target").value = e.target1 || ""; $("edu2Target").value = e.target2 || ""; $("edu3Target").value = e.target3 || "";
+  $("educationProgressList").innerHTML = [
+    educationProgressCard("長女", num(e.child1), num(e.target1)),
+    educationProgressCard("次女", num(e.child2), num(e.target2)),
+    educationProgressCard("三女", num(e.child3), num(e.target3))
+  ].join("");
+}
+function renderSavingsGoals() {
+  const list = [...state.savingsGoals].sort((a,b)=>String(a.deadline||"9999").localeCompare(String(b.deadline||"9999")));
+  $("savingsGoalList").innerHTML = list.length ? list.map(g => {
+    const m = goalMetrics(g), status = m.months && m.monthly < m.neededMonthly ? `月あと ${yen(m.neededMonthly-m.monthly)}必要` : m.remaining ? "目標ペース内" : "達成済み";
+    return `<article class="card savings-card"><div class="progress-title"><div><span class="goal-chip">${escapeHtml(g.category)}</span><strong>${escapeHtml(g.name)}</strong></div><b>${m.rate.toFixed(1)}%</b></div><div class="progress-track"><div class="progress-bar" style="width:${m.rate}%"></div></div><div class="goal-stats"><span>現在 ${yen(m.current)}</span><span>目標 ${yen(m.target)}</span><span>毎月 ${yen(m.monthly)}</span><span>${g.deadline ? escapeHtml(g.deadline) : "期限なし"}</span></div><p class="goal-status ${status.includes("必要") ? "negative" : "positive"}">${status}</p><div class="item-actions"><button class="edit-button" data-edit-goal="${g.id}">編集</button><button class="delete-button" data-delete-goal="${g.id}">削除</button></div></article>`;
+  }).join("") : '<div class="empty">車・旅行・修繕などの積立目標を追加できます。</div>';
+  const totals = state.savingsGoals.reduce((a,g)=>{a.current+=num(g.current);a.target+=num(g.target);a.monthly+=num(g.monthly);return a;},{current:0,target:0,monthly:0});
+  $("goalsTargetTotal").textContent = yen(totals.target); $("goalsCurrentTotal").textContent = yen(totals.current); $("goalsMonthlyTotal").textContent = yen(totals.monthly);
+  $("goalsRateTotal").textContent = `${(totals.target ? Math.min(100,totals.current/totals.target*100) : 0).toFixed(1)}%`;
+}
+function clearGoalForm() {
+  $("goalId").value = ""; ["goalName","goalCurrent","goalTarget","goalMonthly","goalDeadline"].forEach(id => $(id).value = "");
+  $("goalCategory").value = "車"; $("saveGoalButton").textContent = "積立目標を追加"; $("cancelGoalEdit").classList.add("hidden");
+}
+function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
+function renderAll() {
+  if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
+  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
+  $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
+}
+function clearTxForm() {
+  $("txId").value = "";
+  $("txDate").value = today();
+  $("txKind").value = "expense";
+  ["txCategory", "txAmount", "txMemo"].forEach(id => $(id).value = "");
+  $("addTxButton").textContent = "家計を追加";
+  $("cancelTxEdit").classList.add("hidden");
+  document.querySelectorAll(".quick-category").forEach(button => button.classList.remove("selected"));
+}
+function clearAssetForm() {
+  $("assetId").value = ""; ["assetName", "assetBroker", "assetQuantity", "assetCost", "assetPrice", "assetDividend", "assetDividendMonths"].forEach(id => $(id).value = "");
+  $("assetDate").value = today(); $("saveAssetButton").textContent = "保有資産を追加"; $("cancelAssetEdit").classList.add("hidden");
+}
+function syncPlanMethodUI() {
+  const method = $("planMethod").value;
+  $("planMonthlyField").classList.toggle("hidden", method === "lump");
+  $("planStartLabel").textContent = method === "lump" ? "購入日" : "積立開始日";
+  if (method === "lump") $("planMonthly").value = "";
+}
+function clearPlanForm() {
+  $("planId").value = "";
+  ["planName", "planMonthly", "planBroker", "planInvested", "planValue"].forEach(id => $(id).value = "");
+  $("planMethod").value = "monthly";
+  $("planAccount").value = "NISAつみたて投資枠";
+  $("planStart").value = today();
+  syncPlanMethodUI();
+  $("savePlanButton").textContent = "積立を追加";
+  $("cancelPlanEdit").classList.add("hidden");
+}
+
+$("addTxButton").addEventListener("click", () => {
+  const amount = num($("txAmount").value); if (!amount) return alert("金額を入力してください");
+  const id = $("txId").value;
+  const item = { id: id || uid(), date: $("txDate").value || today(), kind: $("txKind").value, category: $("txCategory").value.trim() || "未分類", amount, memo: $("txMemo").value.trim() };
+  if (id) state.transactions = state.transactions.map(t => t.id === id ? item : t); else state.transactions.push(item);
+  saveState(); clearTxForm(); renderAll();
+});
+$("saveAssetButton").addEventListener("click", () => {
+  const name = $("assetName").value.trim(); if (!name) return alert("銘柄・商品名を入力してください");
+  const id = $("assetId").value, data = { id: id || uid(), owner: normalizeOwner(currentOwner), name, type: $("assetType").value, broker: $("assetBroker").value.trim(), account: $("assetAccount").value, date: $("assetDate").value, quantity: num($("assetQuantity").value), cost: num($("assetCost").value), price: num($("assetPrice").value), dividend: num($("assetDividend").value), dividendMonths: $("assetDividendMonths").value.trim() };
+  if (id) state.assets = state.assets.map(a => a.id === id ? data : a); else state.assets.push(data);
+  saveState(); clearAssetForm(); renderAll();
+});
+$("savePlanButton").addEventListener("click", () => {
+  const name = $("planName").value.trim();
+  if (!name) return alert("商品名を入力してください");
+  const method = $("planMethod").value === "lump" ? "lump" : "monthly";
+  const monthly = method === "monthly" ? num($("planMonthly").value) : 0;
+  if (method === "monthly" && !monthly) return alert("毎月の積立額を入力してください");
+  const id = $("planId").value;
+  const data = {
+    id: id || uid(),
+    owner: normalizeOwner(currentOwner),
+    name,
+    method,
+    monthly,
+    start: $("planStart").value,
+    broker: $("planBroker").value.trim(),
+    account: $("planAccount").value,
+    invested: $("planInvested").value === "" ? null : num($("planInvested").value),
+    value: $("planValue").value === "" ? null : num($("planValue").value)
+  };
+  if (id) state.plans = state.plans.map(p => p.id === id ? data : p); else state.plans.push(data);
+  saveState(); clearPlanForm(); renderAll();
+});
+document.addEventListener("click", e => {
+  const d = e.target.dataset;
+  if (d.deleteAsset && confirm("この保有資産を削除しますか？")) { state.assets = state.assets.filter(a => a.id !== d.deleteAsset); saveState(); renderAll(); }
+  if (d.deletePlan && confirm("この積立を削除しますか？")) { state.plans = state.plans.filter(p => p.id !== d.deletePlan); saveState(); renderAll(); }
+  if (d.editTx) {
+    const t = state.transactions.find(x => x.id === d.editTx); if (t) {
+      $("txId").value = t.id; $("txDate").value = t.date || today(); $("txKind").value = t.kind; $("txCategory").value = t.category || ""; $("txAmount").value = t.amount; $("txMemo").value = t.memo || "";
+      $("addTxButton").textContent = "変更を保存"; $("cancelTxEdit").classList.remove("hidden"); $("txDate").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+  if (d.deleteTx && confirm("この家計記録を削除しますか？")) { state.transactions = state.transactions.filter(t => t.id !== d.deleteTx); saveState(); renderAll(); }
+  if (d.editAsset) {
+    setInvestmentView("assets");
+    const a = state.assets.find(x => x.id === d.editAsset); if (a) {
+      $("assetId").value = a.id; $("assetName").value = a.name; $("assetType").value = a.type; $("assetBroker").value = a.broker || ""; $("assetAccount").value = a.account; $("assetDate").value = a.date || today(); $("assetQuantity").value = a.quantity; $("assetCost").value = a.cost; $("assetPrice").value = a.price; $("assetDividend").value = a.dividend; $("assetDividendMonths").value = a.dividendMonths || "";
+      $("saveAssetButton").textContent = "変更を保存"; $("cancelAssetEdit").classList.remove("hidden"); const details = $("assetFormWrap").querySelector("details"); if (details) details.open = true; $("assetFormWrap").scrollIntoView({ behavior: "smooth" });
+    }
+  }
+  if (d.editPlan) {
+    setInvestmentView("plans");
+    const p = state.plans.find(x => x.id === d.editPlan); if (p) {
+      $("planId").value = p.id;
+      $("planName").value = p.name;
+      $("planMethod").value = p.method === "lump" ? "lump" : "monthly";
+      $("planMonthly").value = p.monthly || "";
+      $("planStart").value = p.start || today();
+      $("planBroker").value = p.broker || "";
+      $("planAccount").value = p.account;
+      $("planInvested").value = p.invested ?? "";
+      $("planValue").value = p.value ?? "";
+      syncPlanMethodUI();
+      $("savePlanButton").textContent = "変更を保存"; $("cancelPlanEdit").classList.remove("hidden"); const details = $("planFormWrap").querySelector("details"); if (details) details.open = true; $("planFormWrap").scrollIntoView({ behavior: "smooth" });
+    }
+  }
+  if (d.editEvent) {
+    const item = state.lifeEvents.find(x => x.id === d.editEvent); if (item) {
+      $("eventId").value = item.id; $("eventYear").value = item.year; $("eventPerson").value = item.person || "家族"; $("eventTitle").value = item.title; $("eventCost").value = item.cost || "";
+      $("saveEventButton").textContent = "予定を更新"; $("cancelEventEdit").classList.remove("hidden"); $("eventYear").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+  if (d.deleteEvent && confirm("この予定を削除しますか？")) {
+    state.lifeEvents = state.lifeEvents.filter(x => x.id !== d.deleteEvent); saveState(); renderAll();
+  }
+  if (d.editGoal) {
+    const g = state.savingsGoals.find(x => x.id === d.editGoal); if (g) {
+      $("goalId").value = g.id; $("goalCategory").value = g.category; $("goalName").value = g.name; $("goalCurrent").value = g.current; $("goalTarget").value = g.target; $("goalMonthly").value = g.monthly; $("goalDeadline").value = g.deadline || "";
+      $("saveGoalButton").textContent = "変更を保存"; $("cancelGoalEdit").classList.remove("hidden"); $("goalName").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+  if (d.deleteGoal && confirm("この積立目標を削除しますか？")) { state.savingsGoals = state.savingsGoals.filter(x => x.id !== d.deleteGoal); saveState(); renderAll(); }
+});
+$("cancelTxEdit").addEventListener("click", clearTxForm);
+document.querySelectorAll(".quick-category").forEach(button => button.addEventListener("click", () => {
+  $("txKind").value = button.dataset.quickKind;
+  $("txCategory").value = button.dataset.quickCategory;
+  document.querySelectorAll(".quick-category").forEach(x => x.classList.toggle("selected", x === button));
+  $("txAmount").focus();
+}));
+$("saveBudgetLimitButton").addEventListener("click", () => {
+  const month = selectedBudgetMonth(), limit = num($("budgetLimitInput").value);
+  if (limit) state.budgetSettings.monthlyLimits[month] = limit; else delete state.budgetSettings.monthlyLimits[month];
+  saveState(); renderTransactions();
+  alert(limit ? `${month.replace("-", "年")}月の予算を保存しました` : "予算設定を解除しました");
+});
+$("cancelAssetEdit").addEventListener("click", clearAssetForm);
+$("cancelPlanEdit").addEventListener("click", clearPlanForm);
+document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
+  currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
+  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
+}));
+document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
+document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
+  currentRanking = b.dataset.ranking; document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x === b)); renderRanking();
+}));
+document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
+  document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
+  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); }, 50);
+  if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
+  if (b.dataset.screen === "budgetScreen") setTimeout(() => drawBudgetTrend(selectedBudgetMonth()), 50);
+}));
+["assetSearch", "assetFilter", "assetSort"].forEach(id => $(id).addEventListener("input", renderAssets));
+$("txSearch").addEventListener("input", renderTransactions);
+$("txMonth").addEventListener("change", renderTransactions);
+$("refreshAdviceButton").addEventListener("click", () => { renderCharlieAdvice(); $("refreshAdviceButton").textContent = "更新済み"; setTimeout(() => $("refreshAdviceButton").textContent = "更新", 900); });
+$("saveEventButton").addEventListener("click", () => {
+  const year = Number($("eventYear").value), title = $("eventTitle").value.trim();
+  if (!year || !title) return alert("年と予定・出来事を入力してください");
+  const id = $("eventId").value || uid();
+  const item = { id, year, person: $("eventPerson").value, title, cost: num($("eventCost").value) };
+  const index = state.lifeEvents.findIndex(e => e.id === id);
+  if (index >= 0) state.lifeEvents[index] = item; else state.lifeEvents.push(item);
+  saveState(); clearEventForm(); renderAll();
+});
+$("cancelEventEdit").addEventListener("click", clearEventForm);
+$("saveMortgageButton").addEventListener("click", () => {
+  state.mortgage = { balance: num($("mortgageBalance").value), rate: num($("mortgageRate").value), monthly: num($("mortgageMonthly").value), bonusAnnual: num($("mortgageBonus").value), endYear: Number($("mortgageEndYear").value) || 0, extra: num($("mortgageExtra").value) };
+  state.loan = state.mortgage.balance; saveState(); renderAll(); alert("住宅ローンを保存しました");
+});
+$("saveGoalButton").addEventListener("click", () => {
+  const name = $("goalName").value.trim(), target = num($("goalTarget").value);
+  if (!name || !target) return alert("名称と目標額を入力してください");
+  const id = $("goalId").value || uid(), item = { id, category: $("goalCategory").value, name, current: num($("goalCurrent").value), target, monthly: num($("goalMonthly").value), deadline: $("goalDeadline").value };
+  const index = state.savingsGoals.findIndex(g => g.id === id); if (index >= 0) state.savingsGoals[index] = item; else state.savingsGoals.push(item);
+  saveState(); clearGoalForm(); renderAll();
+});
+$("cancelGoalEdit").addEventListener("click", clearGoalForm);
+$("saveEducation").addEventListener("click", () => {
+  state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value), target1: num($("edu1Target").value), target2: num($("edu2Target").value), target3: num($("edu3Target").value) };
+  saveState(); renderAll(); alert("教育資金を保存しました");
+});
+$("saveBaseButton").addEventListener("click", () => {
+  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
+  saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
+});
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
+$("exportButton").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta2-dividend-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$("importInput").addEventListener("change", async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try { const parsed = JSON.parse(await file.text()); state = normalize(parsed.data || parsed); saveState(); renderAll(); alert("バックアップを読み込みました"); }
+  catch { alert("このバックアップは読み込めませんでした"); }
+  finally { e.target.value = ""; }
+});
+$("resetButton").addEventListener("click", () => {
+  if (!confirm("すべての入力データを削除します。よろしいですか？")) return;
+  state = clone(defaultState); saveState(); renderAll();
+});
+window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
+
+$("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today();
+$("planMethod").addEventListener("change", syncPlanMethodUI);
+syncPlanMethodUI();
+recordSnapshot(); saveState(); renderAll();
+initializePersistentStorage();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveBeforeClosing();
+});
+window.addEventListener("pagehide", saveBeforeClosing);
+window.addEventListener("beforeunload", saveBeforeClosing);
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.error));

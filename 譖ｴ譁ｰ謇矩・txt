@@ -1,0 +1,7 @@
+1. ZIPを展開します。
+2. 中のファイルを、ドキュメント > GitHub > sakai-money-pro にすべて上書きします。
+3. GitHub Desktopで Current branch が v8-development になっていることを確認します。
+4. Summaryに「MONEY Pro 8.0 Alpha」と入力してCommitします。
+5. Push originを押します。
+
+注意：公開中のv6-first-releaseにはまだ反映しません。8.0開発ブランチで動作確認するための版です。
