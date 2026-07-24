@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第2弾 配当修正版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第3弾 投資枠整理版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第2弾・配当修正版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第3弾・投資枠整理版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -241,13 +241,20 @@
             <summary>＋ 積立商品を登録する</summary>
             <article class="card form-card investment-form-card">
               <input id="planId" type="hidden">
+              <div class="investment-form-note full">
+                <strong>買い方とNISAの枠は別です</strong>
+                <span>「NISA成長投資枠」でも、毎月積立を選べます。</span>
+              </div>
               <div class="form-grid">
                 <label>商品名<input id="planName" placeholder="例：S&P500"></label>
-                <label>毎月の金額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
-                <label>購入開始日<input id="planStart" type="date"></label>
+                <label>買い方<select id="planMethod"><option value="monthly">毎月積立</option><option value="lump">一括購入</option></select></label>
+                <label id="planMonthlyField">毎月の積立額（円）<input id="planMonthly" type="number" min="0" inputmode="numeric"></label>
+                <label><span id="planStartLabel">積立開始日</span><input id="planStart" type="date"></label>
                 <label>証券会社<input id="planBroker" placeholder="大和証券・SBI証券など"></label>
-                <label>口座<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option></select></label>
+                <label>口座区分<select id="planAccount"><option>NISAつみたて投資枠</option><option>NISA成長投資枠</option><option>特定口座</option><option>一般口座</option><option>iDeCo</option></select></label>
+                <label>累計買付額・元本（円）<input id="planInvested" type="number" min="0" inputmode="numeric" placeholder="実際に買った合計額"></label>
                 <label>現在評価額（円）<input id="planValue" type="number" min="0" inputmode="numeric"></label>
+                <p class="form-help full">評価損益は「現在評価額 − 累計買付額」で計算します。累計買付額を空欄にした場合だけ、積立開始日と毎月額から推定します。</p>
               </div>
               <div class="button-row"><button class="primary" id="savePlanButton">積立を追加</button><button class="secondary hidden" id="cancelPlanEdit">編集を取消</button></div>
             </article>
@@ -256,7 +263,9 @@
         <article class="card plan-overview-card">
           <div><span>毎月の積立合計</span><strong id="planMonthlyTotalView">¥0</strong></div>
           <div><span>年間積立予定</span><strong id="planAnnualTotalView">¥0</strong></div>
-          <div><span>積立評価額</span><strong id="planValueTotalView">¥0</strong></div>
+          <div><span>累計買付額</span><strong id="planInvestedTotalView">¥0</strong></div>
+          <div><span>現在評価額</span><strong id="planValueTotalView">¥0</strong></div>
+          <div><span>評価損益</span><strong id="planProfitTotalView">¥0</strong></div>
         </article>
         <div id="planList" class="stack investment-stack"></div>
       </div>

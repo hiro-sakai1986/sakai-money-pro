@@ -89,7 +89,12 @@ function normalize(raw) {
     ? s.assets.map(asset => ({ ...asset, owner: normalizeOwner(asset?.owner) }))
     : [];
   s.plans = Array.isArray(s.plans)
-    ? s.plans.map(plan => ({ ...plan, owner: normalizeOwner(plan?.owner) }))
+    ? s.plans.map(plan => ({
+        ...plan,
+        owner: normalizeOwner(plan?.owner),
+        method: plan?.method === "lump" ? "lump" : "monthly",
+        invested: plan?.invested === "" || plan?.invested == null ? null : num(plan.invested)
+      }))
     : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
@@ -297,9 +302,10 @@ function investmentTotals(owner = null) {
     return s;
   }, { market: 0, invested: 0, profit: 0, dividend: 0 });
   for (const p of plans) {
-    const months = monthsSince(p.start), contributed = months * num(p.monthly);
-    const value = p.value === "" || p.value == null ? contributed : num(p.value);
-    total.market += value; total.invested += contributed; total.profit += value - contributed;
+    const metrics = planMetrics(p);
+    total.market += metrics.value;
+    total.invested += metrics.contributed;
+    total.profit += metrics.profit;
   }
   return total;
 }
@@ -420,7 +426,7 @@ function renderHome() {
   $("investmentSummary").textContent = yen(inv.market);
   $("monthlyBalance").textContent = yen(budget.income - budget.expense);
   $("monthlyBalance").className = budget.income - budget.expense < 0 ? "negative" : "positive";
-  $("monthlyPlans").textContent = yen(state.plans.reduce((s, p) => s + num(p.monthly), 0) + num(state.education.monthly));
+  $("monthlyPlans").textContent = yen(state.plans.reduce((s, p) => s + (p.method === "lump" ? 0 : num(p.monthly)), 0) + num(state.education.monthly));
   $("incomeTotal").textContent = yen(budget.income);
   $("expenseTotal").textContent = yen(budget.expense);
   $("dividendTotal").textContent = yen(inv.dividend);
@@ -613,9 +619,21 @@ function assetDividendYield(a) {
   return m.invested ? num(a.dividend) / m.invested * 100 : 0;
 }
 function planMetrics(p) {
-  const months = monthsSince(p.start), contributed = months * num(p.monthly);
+  const method = p.method === "lump" ? "lump" : "monthly";
+  const months = method === "monthly" ? monthsSince(p.start) : 0;
+  const estimated = method === "monthly" ? months * num(p.monthly) : 0;
+  const hasActualInvested = p.invested !== "" && p.invested != null;
+  const contributed = hasActualInvested ? num(p.invested) : estimated;
   const value = p.value === "" || p.value == null ? contributed : num(p.value);
-  return { months, contributed, value, profit: value - contributed };
+  return {
+    method,
+    months,
+    estimated,
+    contributed,
+    value,
+    profit: value - contributed,
+    contributionSource: hasActualInvested ? "actual" : "estimated"
+  };
 }
 function investmentAnalysis() {
   const assets = visibleAssets(), plans = visiblePlans();
@@ -747,15 +765,31 @@ function renderAssets() {
 }
 function renderPlans() {
   const list = visiblePlans();
-  const totals = list.reduce((acc,p)=>{const m=planMetrics(p);acc.monthly+=num(p.monthly);acc.value+=m.value;acc.contributed+=m.contributed;return acc;},{monthly:0,value:0,contributed:0});
+  const totals = list.reduce((acc, p) => {
+    const m = planMetrics(p);
+    if (m.method === "monthly") acc.monthly += num(p.monthly);
+    acc.value += m.value;
+    acc.contributed += m.contributed;
+    acc.profit += m.profit;
+    return acc;
+  }, { monthly: 0, value: 0, contributed: 0, profit: 0 });
   $("planCountLabel").textContent = `${list.length}件`;
   $("planMonthlyTotalView").textContent = yen(totals.monthly);
-  $("planAnnualTotalView").textContent = yen(totals.monthly*12);
+  $("planAnnualTotalView").textContent = yen(totals.monthly * 12);
+  $("planInvestedTotalView").textContent = yen(totals.contributed);
   $("planValueTotalView").textContent = yen(totals.value);
+  $("planProfitTotalView").textContent = signedYen(totals.profit);
+  $("planProfitTotalView").className = totals.profit < 0 ? "negative" : "positive";
   $("planList").innerHTML = list.length ? list.map(p => {
     const m = planMetrics(p);
-    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">積立</span><span class="account-chip">${escapeHtml(p.account)}</span></div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">月 ${yen(p.monthly)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>開始日</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>積立月数</span><strong>${m.months}か月</strong></div><div><span>累計入金</span><strong>${yen(m.contributed)}</strong></div><div><span>評価損益</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
-  }).join("") : `<div class="empty">積立はまだありません。</div>`;
+    const methodLabel = m.method === "monthly" ? "毎月積立" : "一括購入";
+    const mainAmount = m.method === "monthly" ? `月 ${yen(p.monthly)}` : "一括購入";
+    const periodLabel = m.method === "monthly" ? "積立月数" : "買付方法";
+    const periodValue = m.method === "monthly" ? `${m.months}か月` : "一括";
+    const sourceChip = m.contributionSource === "estimated" ? '<span class="estimate-chip">元本は推定</span>' : '';
+    const profitLabel = m.contributionSource === "estimated" ? "推定評価損益" : "評価損益";
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
+  }).join("") : `<div class="empty">積立・NISA商品はまだありません。</div>`;
 }
 function renderDividendCalendar() {
   const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [] }));
@@ -842,9 +876,21 @@ function clearAssetForm() {
   $("assetId").value = ""; ["assetName", "assetBroker", "assetQuantity", "assetCost", "assetPrice", "assetDividend", "assetDividendMonths"].forEach(id => $(id).value = "");
   $("assetDate").value = today(); $("saveAssetButton").textContent = "保有資産を追加"; $("cancelAssetEdit").classList.add("hidden");
 }
+function syncPlanMethodUI() {
+  const method = $("planMethod").value;
+  $("planMonthlyField").classList.toggle("hidden", method === "lump");
+  $("planStartLabel").textContent = method === "lump" ? "購入日" : "積立開始日";
+  if (method === "lump") $("planMonthly").value = "";
+}
 function clearPlanForm() {
-  $("planId").value = ""; ["planName", "planMonthly", "planBroker", "planValue"].forEach(id => $(id).value = "");
-  $("planStart").value = today(); $("savePlanButton").textContent = "積立を追加"; $("cancelPlanEdit").classList.add("hidden");
+  $("planId").value = "";
+  ["planName", "planMonthly", "planBroker", "planInvested", "planValue"].forEach(id => $(id).value = "");
+  $("planMethod").value = "monthly";
+  $("planAccount").value = "NISAつみたて投資枠";
+  $("planStart").value = today();
+  syncPlanMethodUI();
+  $("savePlanButton").textContent = "積立を追加";
+  $("cancelPlanEdit").classList.add("hidden");
 }
 
 $("addTxButton").addEventListener("click", () => {
@@ -861,8 +907,24 @@ $("saveAssetButton").addEventListener("click", () => {
   saveState(); clearAssetForm(); renderAll();
 });
 $("savePlanButton").addEventListener("click", () => {
-  const name = $("planName").value.trim(); if (!name) return alert("商品名を入力してください");
-  const id = $("planId").value, data = { id: id || uid(), owner: normalizeOwner(currentOwner), name, monthly: num($("planMonthly").value), start: $("planStart").value, broker: $("planBroker").value.trim(), account: $("planAccount").value, value: $("planValue").value === "" ? null : num($("planValue").value) };
+  const name = $("planName").value.trim();
+  if (!name) return alert("商品名を入力してください");
+  const method = $("planMethod").value === "lump" ? "lump" : "monthly";
+  const monthly = method === "monthly" ? num($("planMonthly").value) : 0;
+  if (method === "monthly" && !monthly) return alert("毎月の積立額を入力してください");
+  const id = $("planId").value;
+  const data = {
+    id: id || uid(),
+    owner: normalizeOwner(currentOwner),
+    name,
+    method,
+    monthly,
+    start: $("planStart").value,
+    broker: $("planBroker").value.trim(),
+    account: $("planAccount").value,
+    invested: $("planInvested").value === "" ? null : num($("planInvested").value),
+    value: $("planValue").value === "" ? null : num($("planValue").value)
+  };
   if (id) state.plans = state.plans.map(p => p.id === id ? data : p); else state.plans.push(data);
   saveState(); clearPlanForm(); renderAll();
 });
@@ -887,7 +949,16 @@ document.addEventListener("click", e => {
   if (d.editPlan) {
     setInvestmentView("plans");
     const p = state.plans.find(x => x.id === d.editPlan); if (p) {
-      $("planId").value = p.id; $("planName").value = p.name; $("planMonthly").value = p.monthly; $("planStart").value = p.start || today(); $("planBroker").value = p.broker || ""; $("planAccount").value = p.account; $("planValue").value = p.value ?? "";
+      $("planId").value = p.id;
+      $("planName").value = p.name;
+      $("planMethod").value = p.method === "lump" ? "lump" : "monthly";
+      $("planMonthly").value = p.monthly || "";
+      $("planStart").value = p.start || today();
+      $("planBroker").value = p.broker || "";
+      $("planAccount").value = p.account;
+      $("planInvested").value = p.invested ?? "";
+      $("planValue").value = p.value ?? "";
+      syncPlanMethodUI();
       $("savePlanButton").textContent = "変更を保存"; $("cancelPlanEdit").classList.remove("hidden"); const details = $("planFormWrap").querySelector("details"); if (details) details.open = true; $("planFormWrap").scrollIntoView({ behavior: "smooth" });
     }
   }
@@ -990,6 +1061,8 @@ $("resetButton").addEventListener("click", () => {
 window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
 $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today();
+$("planMethod").addEventListener("change", syncPlanMethodUI);
+syncPlanMethodUI();
 recordSnapshot(); saveState(); renderAll();
 initializePersistentStorage();
 document.addEventListener("visibilitychange", () => {
