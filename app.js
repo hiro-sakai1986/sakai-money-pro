@@ -29,6 +29,7 @@ const defaultState = {
   plans: [],
   nisaUsage: {},
   nisaPurchases: [],
+  confirmedDuplicateGroups: [],
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
@@ -111,6 +112,9 @@ function normalize(raw) {
         broker: String(item?.broker || "").trim(),
         memo: String(item?.memo || "").trim()
       })).filter(item => item.amount > 0)
+    : [];
+  s.confirmedDuplicateGroups = Array.isArray(s.confirmedDuplicateGroups)
+    ? [...new Set(s.confirmedDuplicateGroups.map(value => String(value || "")).filter(Boolean))]
     : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
@@ -799,6 +803,16 @@ function planDuplicateKey(p) {
 function purchaseDuplicateKey(item) {
   return [normalizeOwner(item.owner), String(item.date || ""), item.kind === "growth" ? "growth" : "tsumitate", normalizeCheckText(item.name), normalizeCheckText(item.broker), num(item.amount)].join("|");
 }
+function duplicateConfirmationKey(kind, group) {
+  const ids = group.map(item => String(item.id || "")).filter(Boolean).sort();
+  return `${kind}:${ids.join(",")}`;
+}
+function isDuplicateGroupConfirmed(kind, group) {
+  return state.confirmedDuplicateGroups.includes(duplicateConfirmationKey(kind, group));
+}
+function duplicateConfirmButton(label, kind, group) {
+  return checkActionButton(label, "data-confirm-duplicate", duplicateConfirmationKey(kind, group));
+}
 function checkActionButton(label, dataName, value) {
   return `<button class="data-check-action" ${dataName}="${escapeHtml(value)}">${escapeHtml(label)}</button>`;
 }
@@ -808,33 +822,40 @@ function investmentDataChecks() {
   const purchases = nisaPurchasesFor(currentOwner, currentNisaYear());
   const issues = [];
 
-  const assetDuplicates = duplicateGroups(assets, assetDuplicateKey);
-  if (assetDuplicates.length) {
-    const extra = assetDuplicates.reduce((sum, group) => {
-      for (const item of group.slice(1)) {
-        const m = assetMetrics(item); sum.market += m.market; sum.invested += m.invested;
-      }
-      return sum;
-    }, { market: 0, invested: 0 });
-    const labels = assetDuplicates.map(group => `${group[0].name} ${group.length}件`).join("・");
-    const actions = assetDuplicates.map(group => checkActionButton(`${group[0].name}を確認`, "data-find-asset", group[0].name)).join("");
+  const assetDuplicates = duplicateGroups(assets, assetDuplicateKey).filter(group => !isDuplicateGroupConfirmed("asset", group));
+  for (const group of assetDuplicates) {
+    const item = group[0];
+    const actions = [
+      checkActionButton(`${item.name}を一覧で確認`, "data-find-asset", item.name),
+      duplicateConfirmButton("別々の買付で正しい", "asset", group)
+    ].join("");
     issues.push({
-      tone: "danger", icon: "!", title: "同じ保有資産が重複している可能性",
-      text: `${labels}。重複候補分だけで評価額 ${yen(extra.market)}、元本 ${yen(extra.invested)} が加算されています。`, actions
+      tone: "warn", icon: "確", title: "同じ内容の保有資産があります",
+      text: `${item.name}が${group.length}件あります。100株ずつ2回買った場合など、別々の買付なら問題ありません。誤登録の場合だけ、保有一覧から不要な登録を削除してください。`, actions
     });
   }
 
-  const planDuplicates = duplicateGroups(plans, planDuplicateKey);
-  if (planDuplicates.length) {
-    const labels = planDuplicates.map(group => `${group[0].name} ${group.length}件`).join("・");
-    const actions = planDuplicates.map(group => checkActionButton(`${group[0].name}を確認`, "data-find-plan", group[0].name)).join("");
-    issues.push({ tone: "danger", icon: "!", title: "同じ積立商品が重複している可能性", text: `${labels}。同じ評価額を2回計上していないか確認してください。`, actions });
+  const planDuplicates = duplicateGroups(plans, planDuplicateKey).filter(group => !isDuplicateGroupConfirmed("plan", group));
+  for (const group of planDuplicates) {
+    const item = group[0];
+    const actions = [
+      checkActionButton(`${item.name}を一覧で確認`, "data-find-plan", item.name),
+      duplicateConfirmButton("別々の積立で正しい", "plan", group)
+    ].join("");
+    issues.push({
+      tone: "warn", icon: "確", title: "同じ内容の積立登録があります",
+      text: `${item.name}が${group.length}件あります。別口座や別契約の積立なら問題ありません。同じ評価額を誤って2回入れた場合だけ修正してください。`, actions
+    });
   }
 
-  const purchaseDuplicates = duplicateGroups(purchases, purchaseDuplicateKey);
-  if (purchaseDuplicates.length) {
-    const labels = purchaseDuplicates.map(group => `${group[0].name || "商品名なし"} ${group.length}件`).join("・");
-    issues.push({ tone: "danger", icon: "!", title: "同じNISA買付履歴が重複している可能性", text: `${labels}。開始時点利用額との二重計上も含めて確認してください。`, actions: "" });
+  const purchaseDuplicates = duplicateGroups(purchases, purchaseDuplicateKey).filter(group => !isDuplicateGroupConfirmed("purchase", group));
+  for (const group of purchaseDuplicates) {
+    const item = group[0];
+    const actions = duplicateConfirmButton("別々の買付記録で正しい", "purchase", group);
+    issues.push({
+      tone: "warn", icon: "確", title: "同じ内容のNISA買付記録があります",
+      text: `${item.name || "商品名なし"}が${group.length}件あります。同じ日に同額を複数回買った記録なら問題ありません。誤登録の場合だけ買付履歴から不要な記録を削除してください。`, actions
+    });
   }
 
   const adjustments = assets.filter(a => /暫定調整|仮調整|調整額|調整分/.test(String(a.name || "")));
@@ -892,9 +913,12 @@ function renderInvestmentDataCheck() {
   card.classList.toggle("has-danger", dangerous);
   card.classList.toggle("has-warning", count > 0 && !dangerous);
   $("investmentDataCheckSummary").innerHTML = count
-    ? `<strong>${dangerous ? "重複候補を含む確認事項があります" : "入力内容を確認したい項目があります"}</strong><span>${currentOwner}の保有資産・積立・NISA買付履歴を端末内で点検しました。</span>`
-    : `<strong>現在のデータに大きな重複候補はありません</strong><span>${currentOwner}の本人・夫・家族合計の集計も自動計算されています。</span>`;
-  $("investmentDataCheckList").innerHTML = count ? issues.map(issue => `<article class="data-check-item ${issue.tone}"><span class="data-check-icon">${escapeHtml(issue.icon)}</span><div><strong>${escapeHtml(issue.title)}</strong><p>${escapeHtml(issue.text)}</p>${issue.actions ? `<div class="data-check-actions">${issue.actions}</div>` : ""}</div></article>`).join("") : `<div class="data-check-ok"><span>✓</span><p>重複候補・暫定調整・極端な価格差・推定元本は見つかりませんでした。</p></div>`;
+    ? `<strong>${dangerous ? "優先して確認したい項目があります" : "入力内容を確認したい項目があります"}</strong><span>${currentOwner}の保有資産・積立・NISA買付履歴を端末内で点検しました。</span>`
+    : `<strong>現在のデータに大きな入力ズレは見つかりません</strong><span>${currentOwner}の本人・夫・家族合計の集計も自動計算されています。</span>`;
+  $("investmentDataCheckList").innerHTML = count ? issues.map(issue => `<article class="data-check-item ${issue.tone}"><span class="data-check-icon">${escapeHtml(issue.icon)}</span><div><strong>${escapeHtml(issue.title)}</strong><p>${escapeHtml(issue.text)}</p>${issue.actions ? `<div class="data-check-actions">${issue.actions}</div>` : ""}</div></article>`).join("") : `<div class="data-check-ok"><span>✓</span><p>未確認の同一登録・暫定調整・極端な価格差・推定元本は見つかりませんでした。</p></div>`;
+  const resetButton = $("resetDuplicateConfirmations");
+  resetButton.classList.toggle("hidden", state.confirmedDuplicateGroups.length === 0);
+  resetButton.textContent = `同一登録の確認済みをリセット（${state.confirmedDuplicateGroups.length}件）`;
 }
 
 function investmentAnalysis() {
@@ -1237,6 +1261,14 @@ $("saveNisaPurchaseButton").addEventListener("click", () => {
 $("cancelNisaPurchaseEdit").addEventListener("click", clearNisaPurchaseForm);
 document.addEventListener("click", e => {
   const d = e.target.dataset;
+  if (d.confirmDuplicate) {
+    const message = "この登録は別々の買付・契約として正しいですか？\n確認後は、同じ組み合わせを今後の点検で警告しません。";
+    if (confirm(message) && !state.confirmedDuplicateGroups.includes(d.confirmDuplicate)) {
+      state.confirmedDuplicateGroups.push(d.confirmDuplicate);
+      saveState();
+      renderAll();
+    }
+  }
   if (d.deleteAsset && confirm("この保有資産を削除しますか？")) { state.assets = state.assets.filter(a => a.id !== d.deleteAsset); saveState(); renderAll(); }
   if (d.findAsset) {
     setInvestmentView("assets");
@@ -1335,6 +1367,13 @@ document.addEventListener("click", e => {
   if (d.deleteGoal && confirm("この積立目標を削除しますか？")) { state.savingsGoals = state.savingsGoals.filter(x => x.id !== d.deleteGoal); saveState(); renderAll(); }
 });
 $("cancelTxEdit").addEventListener("click", clearTxForm);
+$("resetDuplicateConfirmations").addEventListener("click", () => {
+  if (!state.confirmedDuplicateGroups.length) return;
+  if (!confirm("同一登録の「確認済み」をすべて解除しますか？")) return;
+  state.confirmedDuplicateGroups = [];
+  saveState();
+  renderAll();
+});
 document.querySelectorAll(".quick-category").forEach(button => button.addEventListener("click", () => {
   $("txKind").value = button.dataset.quickKind;
   $("txCategory").value = button.dataset.quickCategory;
@@ -1409,7 +1448,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta7-data-check", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta8-duplicate-confirm", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
