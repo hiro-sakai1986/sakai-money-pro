@@ -27,6 +27,7 @@ const defaultState = {
   dark: false,
   assets: [],
   plans: [],
+  nisaUsage: {},
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
@@ -96,6 +97,7 @@ function normalize(raw) {
         invested: plan?.invested === "" || plan?.invested == null ? null : num(plan.invested)
       }))
     : [];
+  s.nisaUsage = s.nisaUsage && typeof s.nisaUsage === "object" && !Array.isArray(s.nisaUsage) ? s.nisaUsage : {};
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
@@ -293,6 +295,38 @@ function assetMetrics(a) {
 }
 function visibleAssets() { return state.assets.filter(a => currentOwner === "家族合計" || normalizeOwner(a.owner) === currentOwner); }
 function visiblePlans() { return state.plans.filter(p => currentOwner === "家族合計" || normalizeOwner(p.owner) === currentOwner); }
+const NISA_LIMITS = { tsumitate: 1200000, growth: 2400000 };
+function currentNisaYear() { return String(new Date().getFullYear()); }
+function nisaUsageFor(owner, year = currentNisaYear()) {
+  const yearly = state.nisaUsage?.[year];
+  const item = yearly?.[owner];
+  return { tsumitate: num(item?.tsumitate), growth: num(item?.growth) };
+}
+function nisaLimitRow(label, used, limit) {
+  const remaining = Math.max(0, limit - used);
+  const rate = limit ? Math.min(100, used / limit * 100) : 0;
+  const over = used > limit;
+  return `<div class="nisa-limit-row ${over ? "over" : ""}"><div class="nisa-limit-head"><span>${label}</span><b>${over ? `上限超過 ${yen(used-limit)}` : `残り ${yen(remaining)}`}</b></div><div class="nisa-limit-amount"><strong>${yen(used)}</strong><small>／ ${yen(limit)}</small></div><div class="nisa-limit-track"><div style="width:${rate}%"></div></div><small class="nisa-limit-rate">${rate.toFixed(1)}% 使用</small></div>`;
+}
+function nisaOwnerBlock(owner) {
+  const usage = nisaUsageFor(owner);
+  return `<section class="nisa-owner-block"><div class="nisa-owner-title"><strong>${owner}</strong><span>年間上限 ${yen(NISA_LIMITS.tsumitate + NISA_LIMITS.growth)}</span></div><div class="nisa-limit-grid">${nisaLimitRow("つみたて投資枠", usage.tsumitate, NISA_LIMITS.tsumitate)}${nisaLimitRow("成長投資枠", usage.growth, NISA_LIMITS.growth)}</div></section>`;
+}
+function renderNisaUsage() {
+  const year = currentNisaYear();
+  $("nisaYearLabel").textContent = `${year}年`;
+  const family = currentOwner === "家族合計";
+  $("nisaUsageContent").innerHTML = family ? `${nisaOwnerBlock("本人")}${nisaOwnerBlock("夫")}` : nisaOwnerBlock(currentOwner);
+  $("nisaUsageEditor").classList.toggle("hidden", family);
+  $("nisaFamilyEditNote").classList.toggle("hidden", !family);
+  if (!family) {
+    const usage = nisaUsageFor(currentOwner, year);
+    $("nisaEditorOwner").textContent = `${currentOwner}のNISA利用額`;
+    $("nisaTsumitateUsed").value = usage.tsumitate || "";
+    $("nisaGrowthUsed").value = usage.growth || "";
+    $("nisaUsageEditor").open = false;
+  }
+}
 function investmentTotals(owner = null) {
   const assets = state.assets.filter(a => !owner || normalizeOwner(a.owner) === owner);
   const plans = state.plans.filter(p => !owner || normalizeOwner(p.owner) === owner);
@@ -860,7 +894,7 @@ function clearGoalForm() {
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
+  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
@@ -994,9 +1028,18 @@ $("saveBudgetLimitButton").addEventListener("click", () => {
 });
 $("cancelAssetEdit").addEventListener("click", clearAssetForm);
 $("cancelPlanEdit").addEventListener("click", clearPlanForm);
+$("saveNisaUsageButton").addEventListener("click", () => {
+  if (currentOwner === "家族合計") return;
+  const year = currentNisaYear();
+  const tsumitate = num($("nisaTsumitateUsed").value);
+  const growth = num($("nisaGrowthUsed").value);
+  if (!state.nisaUsage[year] || typeof state.nisaUsage[year] !== "object") state.nisaUsage[year] = {};
+  state.nisaUsage[year][currentOwner] = { tsumitate, growth };
+  saveState(); renderNisaUsage(); alert(`${currentOwner}の${year}年NISA利用額を保存しました`);
+});
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
+  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
 }));
 document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
@@ -1045,7 +1088,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta2-dividend-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta4-nisa-capacity", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {

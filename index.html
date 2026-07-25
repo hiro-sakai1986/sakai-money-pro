@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第3弾 投資枠整理版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第4弾 NISA利用枠版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第3弾・投資枠整理版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第4弾・NISA利用枠版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -182,6 +182,27 @@
         <article class="card investment-summary-card"><span>保有商品</span><strong id="analysisCount">0商品</strong><small id="assetPlanCountSub">資産0・積立0</small></article>
         <article class="card investment-summary-card"><span>入力不足</span><strong id="missingPriceCount">0件</strong><small>価格が未入力の商品</small></article>
       </div>
+
+      <div class="section-heading investment-section-heading nisa-section-heading">
+        <div><p>NISA CAPACITY</p><h2><span id="nisaYearLabel"></span> NISA利用枠</h2></div>
+        <span class="nisa-manual-chip">今年の買付額で集計</span>
+      </div>
+      <article class="card nisa-usage-card">
+        <div id="nisaUsageContent" class="nisa-usage-content"></div>
+        <details id="nisaUsageEditor" class="nisa-usage-editor">
+          <summary id="nisaUsageEditorSummary">利用額を入力・修正</summary>
+          <div class="nisa-editor-body">
+            <strong id="nisaEditorOwner">本人のNISA利用額</strong>
+            <div class="form-grid nisa-form-grid">
+              <label>つみたて投資枠・今年の買付額（円）<input id="nisaTsumitateUsed" type="number" min="0" max="1200000" inputmode="numeric"></label>
+              <label>成長投資枠・今年の買付額（円）<input id="nisaGrowthUsed" type="number" min="0" max="2400000" inputmode="numeric"></label>
+            </div>
+            <p class="form-help">現在の評価額や累計元本ではなく、証券会社に表示される今年のNISA買付額を入力します。</p>
+            <button class="primary" id="saveNisaUsageButton">NISA利用額を保存</button>
+          </div>
+        </details>
+        <p id="nisaFamilyEditNote" class="nisa-family-edit-note hidden">本人または夫のタブに切り替えると、利用額を入力できます。</p>
+      </article>
 
       <div class="section-heading investment-section-heading"><div><p>PORTFOLIO MIX</p><h2>投資バランス</h2></div></div>
       <article class="card chart-card investment-chart-card">
