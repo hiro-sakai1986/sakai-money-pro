@@ -777,6 +777,126 @@ function planMetrics(p) {
     contributionSource: hasActualInvested ? "actual" : "estimated"
   };
 }
+function normalizeCheckText(value) {
+  return String(value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, "");
+}
+function duplicateGroups(items, keyMaker) {
+  const grouped = new Map();
+  for (const item of items) {
+    const key = keyMaker(item);
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(item);
+  }
+  return [...grouped.values()].filter(group => group.length > 1);
+}
+function assetDuplicateKey(a) {
+  return [normalizeOwner(a.owner), normalizeCheckText(a.name), normalizeCheckText(a.broker), normalizeCheckText(a.account), normalizeCheckText(a.type), String(a.date || ""), num(a.quantity), num(a.cost), num(a.price)].join("|");
+}
+function planDuplicateKey(p) {
+  return [normalizeOwner(p.owner), normalizeCheckText(p.name), normalizeCheckText(p.broker), normalizeCheckText(p.account), p.method === "lump" ? "lump" : "monthly", String(p.start || ""), num(p.monthly), p.invested == null ? "" : num(p.invested), p.value == null ? "" : num(p.value)].join("|");
+}
+function purchaseDuplicateKey(item) {
+  return [normalizeOwner(item.owner), String(item.date || ""), item.kind === "growth" ? "growth" : "tsumitate", normalizeCheckText(item.name), normalizeCheckText(item.broker), num(item.amount)].join("|");
+}
+function checkActionButton(label, dataName, value) {
+  return `<button class="data-check-action" ${dataName}="${escapeHtml(value)}">${escapeHtml(label)}</button>`;
+}
+function investmentDataChecks() {
+  const assets = visibleAssets();
+  const plans = visiblePlans();
+  const purchases = nisaPurchasesFor(currentOwner, currentNisaYear());
+  const issues = [];
+
+  const assetDuplicates = duplicateGroups(assets, assetDuplicateKey);
+  if (assetDuplicates.length) {
+    const extra = assetDuplicates.reduce((sum, group) => {
+      for (const item of group.slice(1)) {
+        const m = assetMetrics(item); sum.market += m.market; sum.invested += m.invested;
+      }
+      return sum;
+    }, { market: 0, invested: 0 });
+    const labels = assetDuplicates.map(group => `${group[0].name} ${group.length}件`).join("・");
+    const actions = assetDuplicates.map(group => checkActionButton(`${group[0].name}を確認`, "data-find-asset", group[0].name)).join("");
+    issues.push({
+      tone: "danger", icon: "!", title: "同じ保有資産が重複している可能性",
+      text: `${labels}。重複候補分だけで評価額 ${yen(extra.market)}、元本 ${yen(extra.invested)} が加算されています。`, actions
+    });
+  }
+
+  const planDuplicates = duplicateGroups(plans, planDuplicateKey);
+  if (planDuplicates.length) {
+    const labels = planDuplicates.map(group => `${group[0].name} ${group.length}件`).join("・");
+    const actions = planDuplicates.map(group => checkActionButton(`${group[0].name}を確認`, "data-find-plan", group[0].name)).join("");
+    issues.push({ tone: "danger", icon: "!", title: "同じ積立商品が重複している可能性", text: `${labels}。同じ評価額を2回計上していないか確認してください。`, actions });
+  }
+
+  const purchaseDuplicates = duplicateGroups(purchases, purchaseDuplicateKey);
+  if (purchaseDuplicates.length) {
+    const labels = purchaseDuplicates.map(group => `${group[0].name || "商品名なし"} ${group.length}件`).join("・");
+    issues.push({ tone: "danger", icon: "!", title: "同じNISA買付履歴が重複している可能性", text: `${labels}。開始時点利用額との二重計上も含めて確認してください。`, actions: "" });
+  }
+
+  const adjustments = assets.filter(a => /暫定調整|仮調整|調整額|調整分/.test(String(a.name || "")));
+  if (adjustments.length) {
+    const total = adjustments.reduce((sum, a) => sum + assetMetrics(a).market, 0);
+    const labels = adjustments.map(a => `${a.owner} ${a.name} ${yen(assetMetrics(a).market)}`).join("・");
+    issues.push({
+      tone: "warn", icon: "△", title: "暫定調整の資産が残っています",
+      text: `${labels}。合計 ${yen(total)}。まだ個別登録していない資産を表すなら残し、すでに個別入力済みなら二重計上になります。`,
+      actions: checkActionButton("暫定調整を確認", "data-find-asset", "暫定調整")
+    });
+  }
+
+  const suspiciousPrices = assets.filter(a => {
+    const q = num(a.quantity), cost = num(a.cost), price = num(a.price);
+    if (!q || !cost || !price) return false;
+    const ratio = price / cost;
+    return ratio < 0.02 || ratio > 50;
+  });
+  if (suspiciousPrices.length) {
+    const details = suspiciousPrices.map(a => `${a.name}：取得 ${yen(a.cost)}／現在 ${yen(a.price)}`).join("・");
+    const actions = suspiciousPrices.map(a => checkActionButton(`${a.name}を編集`, "data-edit-asset", a.id)).join("");
+    issues.push({ tone: "warn", icon: "桁", title: "価格の桁を確認したい商品があります", text: `${details}。小数点やカンマの入力位置を証券会社の表示と照らしてください。`, actions });
+  }
+
+  const estimatedPlans = plans.filter(p => planMetrics(p).contributionSource === "estimated");
+  if (estimatedPlans.length) {
+    const labels = estimatedPlans.map(p => p.name).join("・");
+    const actions = estimatedPlans.map(p => checkActionButton(`${p.name}を編集`, "data-edit-plan", p.id)).join("");
+    issues.push({ tone: "warn", icon: "概", title: "積立元本が推定計算のままです", text: `${estimatedPlans.length}件（${labels}）。開始日×現在の月額で計算しているため、途中で金額変更した場合は評価損益がずれます。`, actions });
+  }
+
+  const assetPlanOverlaps = [];
+  const assetKeys = new Set(assets.map(a => [normalizeOwner(a.owner), normalizeCheckText(a.name), normalizeCheckText(a.broker), normalizeCheckText(a.account)].join("|")));
+  for (const p of plans) {
+    const key = [normalizeOwner(p.owner), normalizeCheckText(p.name), normalizeCheckText(p.broker), normalizeCheckText(p.account)].join("|");
+    if (assetKeys.has(key)) assetPlanOverlaps.push(p);
+  }
+  if (assetPlanOverlaps.length) {
+    const labels = assetPlanOverlaps.map(p => p.name).join("・");
+    issues.push({ tone: "warn", icon: "重", title: "保有資産と積立の両方に同じ商品があります", text: `${labels}。別口座・別保有分なら問題ありませんが、同じ評価額を両方へ入れている場合は二重計上です。`, actions: assetPlanOverlaps.map(p => checkActionButton(`${p.name}を確認`, "data-find-plan", p.name)).join("") });
+  }
+
+  return { issues, assets, plans };
+}
+function renderInvestmentDataCheck() {
+  const result = investmentDataChecks();
+  const issues = result.issues;
+  const dangerous = issues.some(issue => issue.tone === "danger");
+  const count = issues.length;
+  const countEl = $("dataCheckCount");
+  const card = $("investmentDataCheckCard");
+  countEl.textContent = count ? `要確認 ${count}件` : "点検OK";
+  countEl.className = `data-check-count ${count ? (dangerous ? "danger" : "warn") : "good"}`;
+  card.classList.toggle("has-danger", dangerous);
+  card.classList.toggle("has-warning", count > 0 && !dangerous);
+  $("investmentDataCheckSummary").innerHTML = count
+    ? `<strong>${dangerous ? "重複候補を含む確認事項があります" : "入力内容を確認したい項目があります"}</strong><span>${currentOwner}の保有資産・積立・NISA買付履歴を端末内で点検しました。</span>`
+    : `<strong>現在のデータに大きな重複候補はありません</strong><span>${currentOwner}の本人・夫・家族合計の集計も自動計算されています。</span>`;
+  $("investmentDataCheckList").innerHTML = count ? issues.map(issue => `<article class="data-check-item ${issue.tone}"><span class="data-check-icon">${escapeHtml(issue.icon)}</span><div><strong>${escapeHtml(issue.title)}</strong><p>${escapeHtml(issue.text)}</p>${issue.actions ? `<div class="data-check-actions">${issue.actions}</div>` : ""}</div></article>`).join("") : `<div class="data-check-ok"><span>✓</span><p>重複候補・暫定調整・極端な価格差・推定元本は見つかりませんでした。</p></div>`;
+}
+
 function investmentAnalysis() {
   const assets = visibleAssets(), plans = visiblePlans();
   const totals = assets.reduce((acc, a) => {
@@ -812,6 +932,7 @@ function renderInvestmentAnalysis() {
   drawInvestmentAllocation();
   renderInvestmentAccountBreakdown();
   renderInvestmentInsights();
+  renderInvestmentDataCheck();
 }
 function drawInvestmentAllocation() {
   const canvas = $("investmentAllocationChart"), ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
@@ -1117,6 +1238,22 @@ $("cancelNisaPurchaseEdit").addEventListener("click", clearNisaPurchaseForm);
 document.addEventListener("click", e => {
   const d = e.target.dataset;
   if (d.deleteAsset && confirm("この保有資産を削除しますか？")) { state.assets = state.assets.filter(a => a.id !== d.deleteAsset); saveState(); renderAll(); }
+  if (d.findAsset) {
+    setInvestmentView("assets");
+    $("assetSearch").value = d.findAsset;
+    $("assetFilter").value = "all";
+    renderAssets();
+    $("assetList").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  if (d.findPlan) {
+    setInvestmentView("plans");
+    const match = state.plans.find(p => String(p.name || "") === d.findPlan && (currentOwner === "家族合計" || normalizeOwner(p.owner) === currentOwner));
+    if (match) {
+      const cardButtons = [...document.querySelectorAll(`[data-edit-plan="${match.id}"]`)];
+      $("planList").scrollIntoView({ behavior: "smooth", block: "start" });
+      if (!cardButtons.length) renderPlans();
+    }
+  }
   if (d.deletePlan && confirm("この積立を削除しますか？")) { state.plans = state.plans.filter(p => p.id !== d.deletePlan); saveState(); renderAll(); }
   if (d.deleteNisaPurchase && confirm("このNISA買付記録を削除しますか？")) { state.nisaPurchases = state.nisaPurchases.filter(item => item.id !== d.deleteNisaPurchase); saveState(); clearNisaPurchaseForm(); renderAll(); }
   if (d.editNisaPurchase) {
@@ -1148,15 +1285,25 @@ document.addEventListener("click", e => {
   }
   if (d.deleteTx && confirm("この家計記録を削除しますか？")) { state.transactions = state.transactions.filter(t => t.id !== d.deleteTx); saveState(); renderAll(); }
   if (d.editAsset) {
-    setInvestmentView("assets");
     const a = state.assets.find(x => x.id === d.editAsset); if (a) {
+      if (currentOwner === "家族合計") {
+        currentOwner = normalizeOwner(a.owner);
+        document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x.dataset.owner === currentOwner));
+        renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans();
+      }
+      setInvestmentView("assets");
       $("assetId").value = a.id; $("assetName").value = a.name; $("assetType").value = a.type; $("assetBroker").value = a.broker || ""; $("assetAccount").value = a.account; $("assetDate").value = a.date || today(); $("assetQuantity").value = a.quantity; $("assetCost").value = a.cost; $("assetPrice").value = a.price; $("assetDividend").value = a.dividend; $("assetDividendMonths").value = a.dividendMonths || "";
       $("saveAssetButton").textContent = "変更を保存"; $("cancelAssetEdit").classList.remove("hidden"); const details = $("assetFormWrap").querySelector("details"); if (details) details.open = true; $("assetFormWrap").scrollIntoView({ behavior: "smooth" });
     }
   }
   if (d.editPlan) {
-    setInvestmentView("plans");
     const p = state.plans.find(x => x.id === d.editPlan); if (p) {
+      if (currentOwner === "家族合計") {
+        currentOwner = normalizeOwner(p.owner);
+        document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x.dataset.owner === currentOwner));
+        renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans();
+      }
+      setInvestmentView("plans");
       $("planId").value = p.id;
       $("planName").value = p.name;
       $("planMethod").value = p.method === "lump" ? "lump" : "monthly";
@@ -1262,7 +1409,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta6-nisa-auto", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta7-data-check", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
