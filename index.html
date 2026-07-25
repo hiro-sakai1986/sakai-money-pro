@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第5弾 NISA年末予測版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第6弾 NISA自動集計版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第5弾・NISA年末予測版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第6弾・NISA自動集計版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -185,23 +185,47 @@
 
       <div class="section-heading investment-section-heading nisa-section-heading">
         <div><p>NISA CAPACITY</p><h2><span id="nisaYearLabel"></span> NISA利用枠</h2></div>
-        <span class="nisa-manual-chip">今年の買付額で集計</span>
+        <span class="nisa-manual-chip">基準額＋買付履歴で自動集計</span>
       </div>
       <article class="card nisa-usage-card">
         <div id="nisaUsageContent" class="nisa-usage-content"></div>
         <details id="nisaUsageEditor" class="nisa-usage-editor">
-          <summary id="nisaUsageEditorSummary">利用額を入力・修正</summary>
+          <summary id="nisaUsageEditorSummary">開始時点の利用額を確認・修正</summary>
           <div class="nisa-editor-body">
-            <strong id="nisaEditorOwner">本人のNISA利用額</strong>
+            <strong id="nisaEditorOwner">本人の開始時点利用額</strong>
             <div class="form-grid nisa-form-grid">
-              <label>つみたて投資枠・今年の買付額（円）<input id="nisaTsumitateUsed" type="number" min="0" max="1200000" inputmode="numeric"></label>
-              <label>成長投資枠・今年の買付額（円）<input id="nisaGrowthUsed" type="number" min="0" max="2400000" inputmode="numeric"></label>
+              <label>つみたて投資枠・開始時点（円）<input id="nisaTsumitateUsed" type="number" min="0" max="1200000" inputmode="numeric"></label>
+              <label>成長投資枠・開始時点（円）<input id="nisaGrowthUsed" type="number" min="0" max="2400000" inputmode="numeric"></label>
             </div>
-            <p class="form-help">現在の評価額や累計元本ではなく、証券会社に表示される今年のNISA買付額を入力します。</p>
-            <button class="primary" id="saveNisaUsageButton">NISA利用額を保存</button>
+            <p class="form-help">これまで入力した利用額は開始時点として残ります。今後は下の買付履歴を追加すると、自動で利用額へ加算されます。</p>
+            <button class="primary" id="saveNisaUsageButton">開始時点の利用額を保存</button>
           </div>
         </details>
-        <p id="nisaFamilyEditNote" class="nisa-family-edit-note hidden">本人または夫のタブに切り替えると、利用額を入力できます。</p>
+        <p id="nisaFamilyEditNote" class="nisa-family-edit-note hidden">本人または夫のタブに切り替えると、開始時点の利用額を修正できます。</p>
+
+        <section class="nisa-purchase-section">
+          <div class="nisa-purchase-heading"><div><span>AUTO PURCHASE LOG</span><strong><span id="nisaYearPurchaseLabel">今年</span>のNISA買付履歴</strong></div><b id="nisaPurchaseSummary">0件・¥0</b></div>
+          <div id="nisaPurchaseFormWrap">
+            <details id="nisaPurchaseEditor" class="nisa-purchase-editor">
+              <summary>＋ NISA買付を記録する</summary>
+              <div class="nisa-purchase-form">
+                <input id="nisaPurchaseId" type="hidden">
+                <div class="form-grid">
+                  <label>買付日<input id="nisaPurchaseDate" type="date"></label>
+                  <label>NISAの枠<select id="nisaPurchaseKind"><option value="">選択してください</option><option value="tsumitate">つみたて投資枠</option><option value="growth">成長投資枠</option></select></label>
+                  <label class="full">商品名<input id="nisaPurchaseName" list="nisaPurchaseProductList" placeholder="例：S&P500"><datalist id="nisaPurchaseProductList"></datalist></label>
+                  <label>今回の買付額（円）<input id="nisaPurchaseAmount" type="number" min="0" inputmode="numeric"></label>
+                  <label>証券会社<input id="nisaPurchaseBroker" placeholder="SBI証券・大和証券など"></label>
+                  <label class="full">メモ<input id="nisaPurchaseMemo" placeholder="任意"></label>
+                </div>
+                <p class="form-help">買付額を登録すると、その年のNISA利用額・残り枠・年末予測へ自動で反映します。すでに開始時点利用額へ含めた過去の買付は、重ねて登録しないでください。</p>
+                <div class="button-row"><button class="primary" id="saveNisaPurchaseButton">買付を記録</button><button class="secondary hidden" id="cancelNisaPurchaseEdit">編集を取消</button></div>
+              </div>
+            </details>
+          </div>
+          <p id="nisaPurchaseFamilyNote" class="nisa-family-edit-note hidden">本人または夫のタブに切り替えると、買付履歴を追加できます。</p>
+          <div id="nisaPurchaseList" class="nisa-purchase-list"></div>
+        </section>
       </article>
 
       <div class="section-heading investment-section-heading"><div><p>PORTFOLIO MIX</p><h2>投資バランス</h2></div></div>

@@ -28,6 +28,7 @@ const defaultState = {
   assets: [],
   plans: [],
   nisaUsage: {},
+  nisaPurchases: [],
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
@@ -98,6 +99,19 @@ function normalize(raw) {
       }))
     : [];
   s.nisaUsage = s.nisaUsage && typeof s.nisaUsage === "object" && !Array.isArray(s.nisaUsage) ? s.nisaUsage : {};
+  s.nisaPurchases = Array.isArray(s.nisaPurchases)
+    ? s.nisaPurchases.map(item => ({
+        ...item,
+        id: item?.id || uid(),
+        owner: normalizeOwner(item?.owner),
+        date: String(item?.date || today()),
+        kind: item?.kind === "growth" ? "growth" : "tsumitate",
+        amount: num(item?.amount),
+        name: String(item?.name || "").trim(),
+        broker: String(item?.broker || "").trim(),
+        memo: String(item?.memo || "").trim()
+      })).filter(item => item.amount > 0)
+    : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
@@ -120,6 +134,7 @@ function hasMeaningfulData(raw) {
     Number(raw.loan) ||
     (Array.isArray(raw.assets) && raw.assets.length) ||
     (Array.isArray(raw.plans) && raw.plans.length) ||
+    (Array.isArray(raw.nisaPurchases) && raw.nisaPurchases.length) ||
     (Array.isArray(raw.transactions) && raw.transactions.length) ||
     Number(education.child1) ||
     Number(education.child2) ||
@@ -297,10 +312,38 @@ function visibleAssets() { return state.assets.filter(a => currentOwner === "家
 function visiblePlans() { return state.plans.filter(p => currentOwner === "家族合計" || normalizeOwner(p.owner) === currentOwner); }
 const NISA_LIMITS = { tsumitate: 1200000, growth: 2400000 };
 function currentNisaYear() { return String(new Date().getFullYear()); }
-function nisaUsageFor(owner, year = currentNisaYear()) {
+function nisaBaseUsageFor(owner, year = currentNisaYear()) {
   const yearly = state.nisaUsage?.[year];
   const item = yearly?.[owner];
   return { tsumitate: num(item?.tsumitate), growth: num(item?.growth) };
+}
+function nisaPurchasesFor(owner, year = currentNisaYear()) {
+  return state.nisaPurchases.filter(item => {
+    const sameOwner = owner === "家族合計" || normalizeOwner(item?.owner) === owner;
+    return sameOwner && String(item?.date || "").startsWith(String(year));
+  });
+}
+function nisaPurchaseTotals(owner, year = currentNisaYear()) {
+  return nisaPurchasesFor(owner, year).reduce((totals, item) => {
+    const kind = item?.kind === "growth" ? "growth" : "tsumitate";
+    totals[kind] += num(item?.amount);
+    totals.total += num(item?.amount);
+    totals.count += 1;
+    return totals;
+  }, { tsumitate: 0, growth: 0, total: 0, count: 0 });
+}
+function nisaUsageFor(owner, year = currentNisaYear()) {
+  const base = nisaBaseUsageFor(owner, year);
+  const purchases = nisaPurchaseTotals(owner, year);
+  return {
+    tsumitate: base.tsumitate + purchases.tsumitate,
+    growth: base.growth + purchases.growth,
+    base,
+    purchases
+  };
+}
+function nisaKindLabel(kind) {
+  return kind === "growth" ? "成長投資枠" : "つみたて投資枠";
 }
 function nisaLimitRow(label, used, limit) {
   const remaining = Math.max(0, limit - used);
@@ -349,22 +392,48 @@ function nisaForecastBlock(owner) {
 }
 function nisaOwnerBlock(owner) {
   const usage = nisaUsageFor(owner);
-  return `<section class="nisa-owner-block"><div class="nisa-owner-title"><strong>${owner}</strong><span>年間上限 ${yen(NISA_LIMITS.tsumitate + NISA_LIMITS.growth)}</span></div><div class="nisa-limit-grid">${nisaLimitRow("つみたて投資枠", usage.tsumitate, NISA_LIMITS.tsumitate)}${nisaLimitRow("成長投資枠", usage.growth, NISA_LIMITS.growth)}</div>${nisaForecastBlock(owner)}</section>`;
+  const baseTotal = usage.base.tsumitate + usage.base.growth;
+  return `<section class="nisa-owner-block"><div class="nisa-owner-title"><strong>${owner}</strong><span>年間上限 ${yen(NISA_LIMITS.tsumitate + NISA_LIMITS.growth)}</span></div><div class="nisa-auto-source"><span>開始時点 ${yen(baseTotal)}</span><b>＋</b><span>買付履歴 ${yen(usage.purchases.total)}（${usage.purchases.count}件）</span><b>＝</b><strong>${yen(usage.tsumitate + usage.growth)}</strong></div><div class="nisa-limit-grid">${nisaLimitRow("つみたて投資枠", usage.tsumitate, NISA_LIMITS.tsumitate)}${nisaLimitRow("成長投資枠", usage.growth, NISA_LIMITS.growth)}</div>${nisaForecastBlock(owner)}</section>`;
+}
+function nisaProductCandidates(owner) {
+  const names = new Set();
+  for (const plan of state.plans) {
+    if (normalizeOwner(plan?.owner) === owner && nisaPlanKind(plan?.account)) names.add(String(plan?.name || "").trim());
+  }
+  for (const asset of state.assets) {
+    if (normalizeOwner(asset?.owner) === owner && nisaPlanKind(asset?.account)) names.add(String(asset?.name || "").trim());
+  }
+  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, "ja"));
+}
+function renderNisaPurchases() {
+  const year = currentNisaYear();
+  const family = currentOwner === "家族合計";
+  const list = nisaPurchasesFor(currentOwner, year).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const total = list.reduce((sum, item) => sum + num(item.amount), 0);
+  $("nisaPurchaseSummary").textContent = `${list.length}件・${yen(total)}`;
+  $("nisaPurchaseFormWrap").classList.toggle("hidden", family);
+  $("nisaPurchaseFamilyNote").classList.toggle("hidden", !family);
+  if (!family) {
+    $("nisaPurchaseProductList").innerHTML = nisaProductCandidates(currentOwner).map(name => `<option value="${escapeHtml(name)}"></option>`).join("");
+  }
+  $("nisaPurchaseList").innerHTML = list.length ? list.map(item => `<article class="nisa-purchase-item"><div><div class="investment-chip-row"><span class="asset-type-chip">${nisaKindLabel(item.kind)}</span><span class="account-chip">${escapeHtml(item.owner)}</span></div><strong>${escapeHtml(item.name || "商品名なし")}</strong><small>${escapeHtml(item.date)}${item.broker ? `・${escapeHtml(item.broker)}` : ""}${item.memo ? `・${escapeHtml(item.memo)}` : ""}</small></div><div class="nisa-purchase-right"><b>${yen(item.amount)}</b><div class="item-actions"><button class="edit-button" data-edit-nisa-purchase="${item.id}">編集</button><button class="delete-button" data-delete-nisa-purchase="${item.id}">削除</button></div></div></article>`).join("") : `<div class="empty nisa-purchase-empty">${year}年の買付履歴はまだありません。</div>`;
 }
 function renderNisaUsage() {
   const year = currentNisaYear();
   $("nisaYearLabel").textContent = `${year}年`;
+  $("nisaYearPurchaseLabel").textContent = `${year}年`;
   const family = currentOwner === "家族合計";
   $("nisaUsageContent").innerHTML = family ? `${nisaOwnerBlock("本人")}${nisaOwnerBlock("夫")}` : nisaOwnerBlock(currentOwner);
   $("nisaUsageEditor").classList.toggle("hidden", family);
   $("nisaFamilyEditNote").classList.toggle("hidden", !family);
   if (!family) {
-    const usage = nisaUsageFor(currentOwner, year);
-    $("nisaEditorOwner").textContent = `${currentOwner}のNISA利用額`;
-    $("nisaTsumitateUsed").value = usage.tsumitate || "";
-    $("nisaGrowthUsed").value = usage.growth || "";
+    const base = nisaBaseUsageFor(currentOwner, year);
+    $("nisaEditorOwner").textContent = `${currentOwner}の開始時点利用額`;
+    $("nisaTsumitateUsed").value = base.tsumitate || "";
+    $("nisaGrowthUsed").value = base.growth || "";
     $("nisaUsageEditor").open = false;
   }
+  renderNisaPurchases();
 }
 function investmentTotals(owner = null) {
   const assets = state.assets.filter(a => !owner || normalizeOwner(a.owner) === owner);
@@ -833,7 +902,8 @@ function renderAssets() {
   $("assetList").innerHTML = list.length ? list.map(a => {
     const m = assetMetrics(a), share = totalMarket ? m.market/totalMarket*100 : 0;
     const priceMissing = num(a.quantity)>0 && num(a.price)<=0;
-    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${escapeHtml(a.type)}</span><span class="account-chip">${escapeHtml(a.account)}</span>${priceMissing?'<span class="missing-chip">価格未入力</span>':''}</div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}・構成比 ${share.toFixed(1)}%</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="holding-progress"><div style="width:${Math.min(100,share)}%"></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
+    const nisaButton = currentOwner !== "家族合計" && nisaPlanKind(a.account) ? `<button class="record-button" data-record-asset="${a.id}">買付を記録</button>` : "";
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${escapeHtml(a.type)}</span><span class="account-chip">${escapeHtml(a.account)}</span>${priceMissing?'<span class="missing-chip">価格未入力</span>':''}</div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}・構成比 ${share.toFixed(1)}%</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="holding-progress"><div style="width:${Math.min(100,share)}%"></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions">${nisaButton}<button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">条件に合う保有資産はありません。</div>`;
 }
 function renderPlans() {
@@ -861,7 +931,8 @@ function renderPlans() {
     const periodValue = m.method === "monthly" ? `${m.months}か月` : "一括";
     const sourceChip = m.contributionSource === "estimated" ? '<span class="estimate-chip">元本は推定</span>' : '';
     const profitLabel = m.contributionSource === "estimated" ? "推定評価損益" : "評価損益";
-    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions"><button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
+    const nisaButton = currentOwner !== "家族合計" && nisaPlanKind(p.account) ? `<button class="record-button" data-record-plan="${p.id}">買付を記録</button>` : "";
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions">${nisaButton}<button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">積立・NISA商品はまだありません。</div>`;
 }
 function renderDividendCalendar() {
@@ -965,6 +1036,25 @@ function clearPlanForm() {
   $("savePlanButton").textContent = "積立を追加";
   $("cancelPlanEdit").classList.add("hidden");
 }
+function clearNisaPurchaseForm() {
+  $("nisaPurchaseId").value = "";
+  $("nisaPurchaseDate").value = today();
+  $("nisaPurchaseKind").value = "";
+  ["nisaPurchaseName", "nisaPurchaseAmount", "nisaPurchaseBroker", "nisaPurchaseMemo"].forEach(id => $(id).value = "");
+  $("saveNisaPurchaseButton").textContent = "買付を記録";
+  $("cancelNisaPurchaseEdit").classList.add("hidden");
+}
+function openNisaPurchaseForm(prefill = {}) {
+  if (currentOwner === "家族合計") return;
+  clearNisaPurchaseForm();
+  $("nisaPurchaseDate").value = prefill.date || today();
+  $("nisaPurchaseName").value = prefill.name || "";
+  $("nisaPurchaseBroker").value = prefill.broker || "";
+  $("nisaPurchaseKind").value = ["tsumitate", "growth"].includes(prefill.kind) ? prefill.kind : "";
+  $("nisaPurchaseEditor").open = true;
+  $("nisaPurchaseFormWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => $("nisaPurchaseAmount").focus(), 350);
+}
 
 $("addTxButton").addEventListener("click", () => {
   const amount = num($("txAmount").value); if (!amount) return alert("金額を入力してください");
@@ -1001,10 +1091,55 @@ $("savePlanButton").addEventListener("click", () => {
   if (id) state.plans = state.plans.map(p => p.id === id ? data : p); else state.plans.push(data);
   saveState(); clearPlanForm(); renderAll();
 });
+$("saveNisaPurchaseButton").addEventListener("click", () => {
+  if (currentOwner === "家族合計") return;
+  const amount = num($("nisaPurchaseAmount").value);
+  const name = $("nisaPurchaseName").value.trim();
+  const kind = $("nisaPurchaseKind").value;
+  if (!name) return alert("商品名を入力してください");
+  if (!["tsumitate", "growth"].includes(kind)) return alert("NISAの枠を選んでください");
+  if (!amount) return alert("今回の買付額を入力してください");
+  const id = $("nisaPurchaseId").value;
+  const data = {
+    id: id || uid(),
+    owner: normalizeOwner(currentOwner),
+    date: $("nisaPurchaseDate").value || today(),
+    kind,
+    amount,
+    name,
+    broker: $("nisaPurchaseBroker").value.trim(),
+    memo: $("nisaPurchaseMemo").value.trim()
+  };
+  if (id) state.nisaPurchases = state.nisaPurchases.map(item => item.id === id ? data : item); else state.nisaPurchases.push(data);
+  saveState(); clearNisaPurchaseForm(); renderAll();
+});
+$("cancelNisaPurchaseEdit").addEventListener("click", clearNisaPurchaseForm);
 document.addEventListener("click", e => {
   const d = e.target.dataset;
   if (d.deleteAsset && confirm("この保有資産を削除しますか？")) { state.assets = state.assets.filter(a => a.id !== d.deleteAsset); saveState(); renderAll(); }
   if (d.deletePlan && confirm("この積立を削除しますか？")) { state.plans = state.plans.filter(p => p.id !== d.deletePlan); saveState(); renderAll(); }
+  if (d.deleteNisaPurchase && confirm("このNISA買付記録を削除しますか？")) { state.nisaPurchases = state.nisaPurchases.filter(item => item.id !== d.deleteNisaPurchase); saveState(); clearNisaPurchaseForm(); renderAll(); }
+  if (d.editNisaPurchase) {
+    const item = state.nisaPurchases.find(x => x.id === d.editNisaPurchase); if (item) {
+      $("nisaPurchaseId").value = item.id;
+      $("nisaPurchaseDate").value = item.date || today();
+      $("nisaPurchaseKind").value = item.kind || "";
+      $("nisaPurchaseName").value = item.name || "";
+      $("nisaPurchaseAmount").value = item.amount || "";
+      $("nisaPurchaseBroker").value = item.broker || "";
+      $("nisaPurchaseMemo").value = item.memo || "";
+      $("saveNisaPurchaseButton").textContent = "変更を保存";
+      $("cancelNisaPurchaseEdit").classList.remove("hidden");
+      $("nisaPurchaseEditor").open = true;
+      $("nisaPurchaseFormWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+  if (d.recordPlan) {
+    const plan = state.plans.find(x => x.id === d.recordPlan); if (plan) openNisaPurchaseForm({ name: plan.name, broker: plan.broker, kind: nisaPlanKind(plan.account) });
+  }
+  if (d.recordAsset) {
+    const asset = state.assets.find(x => x.id === d.recordAsset); if (asset) openNisaPurchaseForm({ name: asset.name, broker: asset.broker, kind: nisaPlanKind(asset.account) });
+  }
   if (d.editTx) {
     const t = state.transactions.find(x => x.id === d.editTx); if (t) {
       $("txId").value = t.id; $("txDate").value = t.date || today(); $("txKind").value = t.kind; $("txCategory").value = t.category || ""; $("txAmount").value = t.amount; $("txMemo").value = t.memo || "";
@@ -1074,11 +1209,11 @@ $("saveNisaUsageButton").addEventListener("click", () => {
   const growth = num($("nisaGrowthUsed").value);
   if (!state.nisaUsage[year] || typeof state.nisaUsage[year] !== "object") state.nisaUsage[year] = {};
   state.nisaUsage[year][currentOwner] = { tsumitate, growth };
-  saveState(); renderNisaUsage(); alert(`${currentOwner}の${year}年NISA利用額を保存しました`);
+  saveState(); renderNisaUsage(); alert(`${currentOwner}の${year}年・開始時点利用額を保存しました`);
 });
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
+  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
 }));
 document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
@@ -1127,7 +1262,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta5-nisa-forecast", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta6-nisa-auto", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -1142,7 +1277,7 @@ $("resetButton").addEventListener("click", () => {
 });
 window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
-$("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today();
+$("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
 $("planMethod").addEventListener("change", syncPlanMethodUI);
 syncPlanMethodUI();
 recordSnapshot(); saveState(); renderAll();
