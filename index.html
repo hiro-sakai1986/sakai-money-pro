@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第7弾 データ点検版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第8弾 同一登録確認版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第7弾・データ点検版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第8弾・同一登録確認版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -190,7 +190,8 @@
       <article id="investmentDataCheckCard" class="card data-check-card">
         <div id="investmentDataCheckSummary" class="data-check-summary"></div>
         <div id="investmentDataCheckList" class="data-check-list"></div>
-        <p class="data-check-note">候補を表示するだけで、自動削除・自動修正はしません。証券会社の表示と照らして確認してください。</p>
+        <p class="data-check-note">同じ内容でも別々の買付なら「正しい」を選べます。自動削除・自動修正はしません。</p>
+        <button id="resetDuplicateConfirmations" class="data-check-reset hidden" type="button">同一登録の確認済みをリセット</button>
       </article>
 
       <div class="section-heading investment-section-heading nisa-section-heading">
