@@ -308,9 +308,48 @@ function nisaLimitRow(label, used, limit) {
   const over = used > limit;
   return `<div class="nisa-limit-row ${over ? "over" : ""}"><div class="nisa-limit-head"><span>${label}</span><b>${over ? `上限超過 ${yen(used-limit)}` : `残り ${yen(remaining)}`}</b></div><div class="nisa-limit-amount"><strong>${yen(used)}</strong><small>／ ${yen(limit)}</small></div><div class="nisa-limit-track"><div style="width:${rate}%"></div></div><small class="nisa-limit-rate">${rate.toFixed(1)}% 使用</small></div>`;
 }
+function nisaPlanKind(account) {
+  const text = String(account ?? "").normalize("NFKC").replace(/\s+/g, "");
+  if (!/NISA/i.test(text)) return null;
+  if (text.includes("つみたて") || text.includes("積立投資枠")) return "tsumitate";
+  if (text.includes("成長")) return "growth";
+  return "unclassified";
+}
+function nisaMonthlySettings(owner) {
+  const totals = { tsumitate: 0, growth: 0, unclassified: 0 };
+  for (const plan of state.plans) {
+    if (normalizeOwner(plan?.owner) !== owner || plan?.method === "lump") continue;
+    const monthly = num(plan?.monthly);
+    if (!monthly) continue;
+    const kind = nisaPlanKind(plan?.account);
+    if (kind) totals[kind] += monthly;
+  }
+  return totals;
+}
+function nisaForecastRow(label, used, limit, monthly, remainingMonths) {
+  const futurePurchases = monthly * remainingMonths;
+  const projected = used + futurePurchases;
+  const difference = limit - projected;
+  const over = difference < 0;
+  const targetMonthly = remainingMonths ? Math.floor(Math.max(0, limit - used) / remainingMonths) : 0;
+  const targetText = remainingMonths
+    ? `残り枠を使い切る単純目安：月 ${yen(targetMonthly)}`
+    : "年内の積立予定期間は終了";
+  return `<div class="nisa-forecast-row ${over ? "over" : ""}"><div class="nisa-forecast-head"><span>${label}</span><b>${over ? `超過見込み ${yen(Math.abs(difference))}` : `年末残り見込み ${yen(difference)}`}</b></div><div class="nisa-forecast-values"><div><small>毎月設定</small><strong>${yen(monthly)}</strong></div><div><small>年末利用見込み</small><strong>${yen(projected)}</strong></div></div><p>${targetText}</p></div>`;
+}
+function nisaForecastBlock(owner) {
+  const usage = nisaUsageFor(owner);
+  const monthly = nisaMonthlySettings(owner);
+  const remainingMonths = Math.max(0, 11 - new Date().getMonth());
+  const period = remainingMonths ? `来月〜12月（${remainingMonths}か月）` : "年内の残り積立なし";
+  const unclassifiedNote = monthly.unclassified
+    ? `<p class="nisa-forecast-warning">口座区分が「NISA」のみの積立 ${yen(monthly.unclassified)}／月は、どちらの枠か判定できないため予測に含めていません。</p>`
+    : "";
+  return `<div class="nisa-forecast-block"><div class="nisa-forecast-title"><strong>年末着地予測</strong><span>${period}</span></div><div class="nisa-forecast-grid">${nisaForecastRow("つみたて投資枠", usage.tsumitate, NISA_LIMITS.tsumitate, monthly.tsumitate, remainingMonths)}${nisaForecastRow("成長投資枠", usage.growth, NISA_LIMITS.growth, monthly.growth, remainingMonths)}</div><p class="nisa-forecast-note">入力済みの今年の利用額に、現在登録している毎月積立を来月分から加えて試算しています。使い切る目安は投資を増やす推奨ではなく、残り枠の単純計算です。</p>${unclassifiedNote}</div>`;
+}
 function nisaOwnerBlock(owner) {
   const usage = nisaUsageFor(owner);
-  return `<section class="nisa-owner-block"><div class="nisa-owner-title"><strong>${owner}</strong><span>年間上限 ${yen(NISA_LIMITS.tsumitate + NISA_LIMITS.growth)}</span></div><div class="nisa-limit-grid">${nisaLimitRow("つみたて投資枠", usage.tsumitate, NISA_LIMITS.tsumitate)}${nisaLimitRow("成長投資枠", usage.growth, NISA_LIMITS.growth)}</div></section>`;
+  return `<section class="nisa-owner-block"><div class="nisa-owner-title"><strong>${owner}</strong><span>年間上限 ${yen(NISA_LIMITS.tsumitate + NISA_LIMITS.growth)}</span></div><div class="nisa-limit-grid">${nisaLimitRow("つみたて投資枠", usage.tsumitate, NISA_LIMITS.tsumitate)}${nisaLimitRow("成長投資枠", usage.growth, NISA_LIMITS.growth)}</div>${nisaForecastBlock(owner)}</section>`;
 }
 function renderNisaUsage() {
   const year = currentNisaYear();
@@ -1088,7 +1127,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta4-nisa-capacity", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta5-nisa-forecast", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
