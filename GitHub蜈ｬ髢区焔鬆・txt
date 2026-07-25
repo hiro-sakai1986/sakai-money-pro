@@ -1,0 +1,30 @@
+GitHub Pages版 アップロード手順
+
+1. このZIPをiPhoneの「ファイル」アプリに保存
+2. ZIPを1回タップして展開
+3. 展開したフォルダを開く
+4. GitHubで次のURLを開く
+   https://github.com/hiro-sakai1986/sakai-money-pro/upload/main
+5. 「choose your files」を押す
+6. 展開したフォルダの中から次のファイルをすべて選ぶ
+   ・index.html
+   ・app.js
+   ・manifest.webmanifest
+   ・sw.js
+   ・icon-192.png
+   ・icon-512.png
+   ・_redirects
+   ・netlify.toml
+   ・.nojekyll
+   ・README.md
+7. 画面下の「Commit changes」を押す
+8. リポジトリの Settings → Pages
+9. Source を「Deploy from a branch」
+10. Branch を「main」、Folder を「/(root)」
+11. Save
+12. 数分後、以下で開く
+   https://hiro-sakai1986.github.io/sakai-money-pro/
+
+今後の更新
+同じリポジトリへ新しいファイルを上書きしてください。
+URLは変わりません。
