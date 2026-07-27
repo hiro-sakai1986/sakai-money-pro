@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第15弾 ライフプランタイムライン版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第17弾 銀行口座管理版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第15弾・ライフプランタイムライン版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第17弾・銀行口座管理版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -36,6 +36,13 @@
         <article class="card metric-card"><span>今月収支</span><strong id="monthlyBalance">¥0</strong></article>
         <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
+
+      <div class="section-heading bank-home-heading"><div><p>BANK ACCOUNTS</p><h2>銀行口座の残高</h2></div><span id="homeBankCount" class="future-snapshot-chip">0口座</span></div>
+      <article class="card home-bank-card">
+        <div class="home-bank-total"><span>口座別に登録済み</span><strong id="homeBankTotal">¥0</strong></div>
+        <div id="homeBankAccounts" class="home-bank-accounts"></div>
+        <div class="home-bank-footer"><small id="homeBankMore"></small><button type="button" class="secondary future-jump" data-target-screen="settingsScreen">口座を管理</button></div>
+      </article>
 
       <div class="section-heading future-snapshot-heading"><div><p>FAMILY FUTURE</p><h2>家族のお金・ひと目で確認</h2></div><span class="future-snapshot-chip">あとどれくらい？</span></div>
       <article class="card future-snapshot-card">
@@ -103,6 +110,25 @@
         <div class="life-plan-note">登録済みのライフイベント・積立目標・住宅ローンを1本の年表にまとめています。金融資産見込みは、現在額に毎月積立を足した単純計算で、運用益や生活費の増減は含みません。</div>
         <div id="lifePlanTimeline" class="life-plan-timeline"></div>
       </article>
+
+
+      <div class="section-heading future-sim-heading"><div><p>FUTURE SIMULATION</p><h2>未来シミュレーション</h2></div><span class="future-sim-chip">資産・ローン・教育資金</span></div>
+      <article class="card future-sim-control-card">
+        <div class="future-sim-controls">
+          <label>想定運用利回り<select id="futureReturnRate"><option value="0">0%</option><option value="3">3%</option><option value="5">5%</option></select></label>
+          <label>追加積立（月）<input id="futureMonthlyExtra" type="number" min="0" step="1000" placeholder="0"></label>
+          <label>表示期間<select id="futureHorizon"><option value="10">10年</option><option value="20">20年</option><option value="30">30年</option></select></label>
+        </div><button id="saveFutureSimulation" class="secondary">条件を保存</button>
+        <p>現在の金融資産、登録済み積立、予定支出、住宅ローンから概算します。将来を保証するものではありません。</p>
+      </article>
+      <div class="future-sim-summary-grid">
+        <article class="card"><span>10年後の金融資産</span><strong id="futureSimAsset10">—</strong><small id="futureSimAsset10Sub">概算</small></article>
+        <article class="card"><span>期間終了時の金融資産</span><strong id="futureSimAssetEnd">—</strong><small id="futureSimAssetEndSub">概算</small></article>
+        <article class="card"><span>資産目標の到達見込み</span><strong id="futureSimGoalYear">—</strong><small id="futureSimGoalSub">目標未設定</small></article>
+        <article class="card"><span>期間終了時のローン</span><strong id="futureSimLoanEnd">—</strong><small id="futureSimLoanEndSub">概算</small></article>
+      </div>
+      <article class="card chart-card future-sim-chart-card"><canvas id="futureSimulationChart" width="640" height="300" aria-label="将来資産と住宅ローン残高の推移"></canvas><div class="future-sim-legend"><span>● 金融資産</span><span>● ローン残高</span></div></article>
+      <article class="card future-education-card"><div class="future-education-head"><strong>教育資金の達成状況</strong><small>3人分を個別表示</small></div><div id="futureEducationRows"></div></article>
 
       <h2>住宅ローン残高の見通し</h2>
       <article class="card chart-card mortgage-home-chart-card">
@@ -521,12 +547,34 @@
       <h2>基本情報</h2>
       <article class="card form-card">
         <div class="form-grid">
-          <label>預金残高（円）<input id="cashInput" type="number" min="0"></label>
+          <label>未振り分け預金（円）<input id="cashInput" type="number" min="0"></label>
           <label>住宅ローン残高（円）<input id="loanInput" type="number" min="0"></label>
           <label>資産目標（円）<input id="assetGoalInput" type="number" min="0" placeholder="例：10000000"></label>
         </div>
         <button class="primary" id="saveBaseButton">基本情報を保存</button>
       </article>
+      <h2>銀行口座管理</h2>
+      <div class="bank-summary-grid">
+        <article class="card metric-card"><span>登録口座の合計</span><strong id="bankAccountsTotal">¥0</strong></article>
+        <article class="card metric-card"><span>登録数</span><strong id="bankAccountsCount">0口座</strong></article>
+        <article class="card metric-card"><span>未振り分け預金</span><strong id="bankUnallocatedSummary">¥0</strong></article>
+      </div>
+      <details id="bankAccountEditor" class="card form-card editor-details">
+        <summary>＋ 銀行口座を登録する</summary>
+        <input id="bankAccountId" type="hidden">
+        <div class="form-grid">
+          <label>名義<select id="bankOwner"><option>本人</option><option>夫</option><option>長女</option><option>次女</option><option>三女</option><option>家族</option></select></label>
+          <label>銀行名・口座名<input id="bankName" placeholder="例：ゆうちょ銀行"></label>
+          <label>口座種類<select id="bankAccountType"><option>普通預金</option><option>定期預金</option><option>貯蓄預金</option><option>その他</option></select></label>
+          <label>用途<select id="bankPurpose"><option>生活費</option><option>貯蓄</option><option>教育費</option><option>給与</option><option>旅行</option><option>予備費</option><option>子ども用</option><option>その他</option></select></label>
+          <label>現在残高（円）<input id="bankBalance" type="number" min="0" step="1"></label>
+          <label>更新日<span class="date-input-wrap"><input id="bankUpdatedAt" type="date"></span></label>
+          <label class="full-width">メモ<input id="bankMemo" placeholder="例：児童手当の入金口座"></label>
+        </div>
+        <div class="form-actions"><button class="primary" id="saveBankAccountButton" type="button">銀行口座を追加</button><button class="secondary hidden" id="cancelBankAccountEdit" type="button">キャンセル</button></div>
+      </details>
+      <div id="bankAccountList" class="bank-account-list"></div>
+
       <h2>データ管理</h2>
       <article class="card settings-actions">
         <button class="secondary" id="exportButton">バックアップを書き出す</button>
