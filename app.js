@@ -636,6 +636,38 @@ function renderLifeGoalDashboard() {
   if(assetTarget) items.push(goalDashboardItem({icon:"💰",title:"総資産目標",current:financial,target:assetTarget,detail:`現在の金融資産 ${yen(financial)}`,tone:"asset"}));
   wrap.innerHTML = items.length ? items.join("") : '<article class="card life-goal-empty">ライフ画面で住宅ローン・教育資金・積立目標を登録すると、ここに進捗グラフが並びます。</article>';
 }
+
+function futureSnapshotData() {
+  const rows = [];
+  const mx = mortgageMetrics();
+  if (mx.original > 0) rows.push({ icon:"🏠", title:"住宅ローン", rate:Math.min(100, mx.progress), current:mx.paid, target:mx.original, detail:`残高 ${yen(mx.balance)}`, status:`返済済み ${yen(mx.paid)}`, tone:"mortgage" });
+  const e = state.education;
+  const eduCurrent = num(e.child1)+num(e.child2)+num(e.child3);
+  const eduTarget = num(e.target1)+num(e.target2)+num(e.target3);
+  if (eduCurrent || eduTarget) rows.push({ icon:"🎓", title:"教育資金（3人合計）", rate:eduTarget?Math.min(100,eduCurrent/eduTarget*100):0, current:eduCurrent, target:eduTarget, detail:eduTarget?`目標 ${yen(eduTarget)}`:"目標額を設定", status:eduTarget?`あと ${yen(Math.max(0,eduTarget-eduCurrent))}`:"目標未設定", tone:"education" });
+  const goalCurrent = state.savingsGoals.reduce((sum,g)=>sum+num(g.current),0);
+  const goalTarget = state.savingsGoals.reduce((sum,g)=>sum+num(g.target),0);
+  if (goalCurrent || goalTarget) rows.push({ icon:"🎯", title:"目的別積立", rate:goalTarget?Math.min(100,goalCurrent/goalTarget*100):0, current:goalCurrent, target:goalTarget, detail:`${state.savingsGoals.length}件の目標`, status:goalTarget?`あと ${yen(Math.max(0,goalTarget-goalCurrent))}`:"目標未設定", tone:"saving" });
+  const financial = financialAssets(), assetTarget = num(state.assetGoal);
+  if (assetTarget) rows.push({ icon:"💰", title:"金融資産目標", rate:Math.min(100,financial/assetTarget*100), current:financial, target:assetTarget, detail:`現在 ${yen(financial)}`, status:financial>=assetTarget?"達成！":`あと ${yen(assetTarget-financial)}`, tone:"asset" });
+  const year=String(new Date().getFullYear());
+  const base=state.nisaUsage?.[year]||{};
+  const purchases=state.nisaPurchases.filter(x=>String(x.date||"").startsWith(year));
+  const used=["本人","夫"].reduce((sum,owner)=>sum+num(base?.[owner]?.tsumitate)+num(base?.[owner]?.growth),0)+purchases.reduce((sum,x)=>sum+num(x.amount),0);
+  const nisaTarget=7200000;
+  if(used) rows.push({icon:"N",title:`${year}年 NISA`,rate:Math.min(100,used/nisaTarget*100),current:used,target:nisaTarget,detail:"夫婦の年間枠",status:`残り ${yen(Math.max(0,nisaTarget-used))}`,tone:"nisa"});
+  return rows;
+}
+function renderFutureSnapshot() {
+  const wrap=$("futureSnapshotRows"); if(!wrap) return;
+  const rows=futureSnapshotData();
+  const overall=rows.length?rows.reduce((sum,x)=>sum+x.rate,0)/rows.length:0;
+  $("futureOverallRate").textContent=`${overall.toFixed(0)}%`;
+  $("futureRingValue").textContent=`${overall.toFixed(0)}%`;
+  $("futureOverallSub").textContent=rows.length?`${rows.length}項目の平均`:`目標を登録すると表示`;
+  const ring=$("futureOverallRing"); if(ring) ring.style.setProperty("--rate",`${overall*3.6}deg`);
+  wrap.innerHTML=rows.length?rows.map(x=>`<div class="future-row ${x.tone}"><span class="future-row-icon">${x.icon}</span><div class="future-row-main"><div class="future-row-title"><strong>${escapeHtml(x.title)}</strong><b>${x.rate.toFixed(0)}%</b></div><div class="future-row-track"><i style="width:${Math.max(0,Math.min(100,x.rate))}%"></i></div><div class="future-row-meta"><span>${escapeHtml(x.detail)}</span><strong>${escapeHtml(x.status)}</strong></div></div></div>`).join(""):'<p class="future-empty">ライフ画面で住宅ローン・教育資金・積立目標を登録すると、ここに進捗が表示されます。</p>';
+}
 function roadmapGoalRows() {
   const rows = [];
   const mx = mortgageMetrics();
@@ -733,7 +765,7 @@ function renderHome() {
   $("goalAmount").textContent = yen(goal);
   $("goalRemaining").textContent = financial >= goal ? "目標達成！" : `あと ${yen(Math.max(0, goal - financial))}`;
   $("goalProgress").style.width = `${rate}%`;
-  renderLifeGoalDashboard();
+  renderFutureSnapshot(); renderLifeGoalDashboard();
   renderLifeRoadmap();
   drawMortgageBalanceChart();
 
@@ -1741,6 +1773,11 @@ document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListene
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
   currentRanking = b.dataset.ranking; document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x === b)); renderRanking();
 }));
+document.querySelectorAll(".future-jump").forEach(button => button.addEventListener("click", () => {
+  const target=button.dataset.targetScreen;
+  const navButton=document.querySelector(`.nav-button[data-screen="${target}"]`);
+  if(navButton) navButton.click();
+}));
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1801,7 +1838,7 @@ $("saveBaseButton").addEventListener("click", () => {
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta13-life-roadmap", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta14-home-dashboard", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第13弾 人生ロードマップ版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第14弾 ホームダッシュボード版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第13弾・人生ロードマップ版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第14弾・ホームダッシュボード版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -36,6 +36,19 @@
         <article class="card metric-card"><span>今月収支</span><strong id="monthlyBalance">¥0</strong></article>
         <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
+
+      <div class="section-heading future-snapshot-heading"><div><p>FAMILY FUTURE</p><h2>家族のお金・ひと目で確認</h2></div><span class="future-snapshot-chip">あとどれくらい？</span></div>
+      <article class="card future-snapshot-card">
+        <div class="future-snapshot-overview">
+          <div><span>目標の平均進捗</span><strong id="futureOverallRate">0%</strong><small id="futureOverallSub">目標を登録すると表示</small></div>
+          <div class="future-ring" id="futureOverallRing"><b id="futureRingValue">0%</b></div>
+        </div>
+        <div id="futureSnapshotRows" class="future-snapshot-rows"></div>
+        <div class="future-snapshot-actions">
+          <button type="button" class="secondary future-jump" data-target-screen="educationScreen">目標を編集</button>
+          <button type="button" class="secondary future-jump" data-target-screen="investScreen">投資を確認</button>
+        </div>
+      </article>
 
       <div class="section-heading"><div><p>SMART INSIGHT</p><h2>チャーリーからひとこと</h2></div><span class="live-badge">LIVE</span></div>
       <article class="card charlie-card">
