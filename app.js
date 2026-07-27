@@ -145,6 +145,10 @@ function normalize(raw) {
   s.savingsGoals = Array.isArray(s.savingsGoals) ? s.savingsGoals : clone(defaultState.savingsGoals);
   s.education = { ...defaultState.education, ...(s.education || {}) };
   s.mortgage = { ...defaultState.mortgage, ...(s.mortgage || {}) };
+  // 旧版や途中版で使われた借入時金額の別名も引き継ぐ。
+  s.mortgage.originalBalance = num(
+    s.mortgage.originalBalance || s.mortgage.borrowAmount || s.mortgage.initialBalance || s.originalLoan
+  );
   if (!s.mortgage.balance && s.loan) s.mortgage.balance = Math.max(0, Number(s.loan) || 0);
   s.mortgage.originalBalance = num(s.mortgage.originalBalance) || num(s.mortgage.balance);
   if (s.mortgage.originalBalance < num(s.mortgage.balance)) s.mortgage.originalBalance = num(s.mortgage.balance);
@@ -1314,6 +1318,33 @@ function clearEventForm() {
   $("eventId").value = ""; $("eventYear").value = ""; $("eventTitle").value = ""; $("eventCost").value = ""; $("eventPerson").value = "家族";
   $("saveEventButton").textContent = "予定を追加"; $("cancelEventEdit").classList.add("hidden");
 }
+function mortgageFormValues() {
+  const balance = num($("mortgageBalance")?.value);
+  const originalInput = num($("mortgageOriginalBalance")?.value);
+  return {
+    originalBalance: Math.max(originalInput, balance),
+    balance,
+    rate: num($("mortgageRate")?.value),
+    monthly: num($("mortgageMonthly")?.value),
+    bonusAnnual: num($("mortgageBonus")?.value),
+    endYear: Number($("mortgageEndYear")?.value) || 0,
+    extra: num($("mortgageExtra")?.value)
+  };
+}
+function previewMortgageProgressFromForm() {
+  if (!$("mortgageOriginalBalance") || !$("mortgageBalance")) return;
+  const original = num($("mortgageOriginalBalance").value);
+  const balance = num($("mortgageBalance").value);
+  const paid = original > 0 ? Math.max(0, original - balance) : 0;
+  const progress = original > 0 ? Math.min(100, paid / original * 100) : 0;
+  $("mortgagePaidSummary").textContent = `${yen(paid)}返済済み`;
+  $("mortgageProgressRate").textContent = `${progress.toFixed(1)}%`;
+  $("mortgageProgressBar").style.width = `${progress}%`;
+  $("mortgageProgressCaption").textContent = original > 0
+    ? `借入時 ${yen(original)} → 現在 ${yen(balance)}。あと ${yen(balance)}です。`
+    : "借入時の金額を入力すると進捗が分かります。";
+}
+
 function renderMortgage() {
   const m = state.mortgage, x = mortgageMetrics();
   $("mortgageOriginalBalance").value = m.originalBalance || ""; $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
@@ -1679,9 +1710,24 @@ $("saveEventButton").addEventListener("click", () => {
 });
 $("cancelEventEdit").addEventListener("click", clearEventForm);
 $("saveMortgageButton").addEventListener("click", () => {
-  const balance = num($("mortgageBalance").value);
-  state.mortgage = { originalBalance: Math.max(balance, num($("mortgageOriginalBalance").value)), balance, rate: num($("mortgageRate").value), monthly: num($("mortgageMonthly").value), bonusAnnual: num($("mortgageBonus").value), endYear: Number($("mortgageEndYear").value) || 0, extra: num($("mortgageExtra").value) };
-  state.loan = state.mortgage.balance; saveState(); renderAll(); alert("住宅ローンを保存しました");
+  const values = mortgageFormValues();
+  if (!values.originalBalance) return alert("借入時の金額を入力してください");
+  if (!values.balance) return alert("現在のローン残高を入力してください");
+  state.mortgage = { ...state.mortgage, ...values };
+  state.loan = values.balance;
+  // まず通常保存へ同期的に書き込み、その後に予備保存・画面更新を行う。
+  state._savedAt = new Date().toISOString();
+  try { writeLocalCopies(state); } catch (error) { console.warn("住宅ローンの通常保存に失敗しました", error); }
+  saveState();
+  renderMortgage();
+  renderHome();
+  $("loanInput").value = state.loan || "";
+  alert(`住宅ローンを保存しました
+返済済み ${yen(Math.max(0, values.originalBalance - values.balance))}`);
+});
+["mortgageOriginalBalance", "mortgageBalance"].forEach(id => {
+  $(id)?.addEventListener("input", previewMortgageProgressFromForm);
+  $(id)?.addEventListener("change", previewMortgageProgressFromForm);
 });
 $("saveGoalButton").addEventListener("click", () => {
   const name = $("goalName").value.trim(), target = num($("goalTarget").value);
@@ -1702,7 +1748,7 @@ $("saveBaseButton").addEventListener("click", () => {
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta11-goal-dashboard", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta12-mortgage-progress-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
