@@ -915,6 +915,7 @@ function renderHome() {
   $("netWorthSub").textContent = `金融資産 ${yen(financial)} − ローン ${yen(state.loan)}`;
   $("cashSummary").textContent = yen(state.cash);
   renderBankAccountSummary();
+  renderHomeInsuranceSummary();
   $("investmentSummary").textContent = yen(inv.market);
   $("monthlyBalance").textContent = yen(budget.income - budget.expense);
   $("monthlyBalance").className = budget.income - budget.expense < 0 ? "negative" : "positive";
@@ -956,6 +957,22 @@ function renderBankAccountSummary() {
     <div class="home-bank-row"><div><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.owner)}・${escapeHtml(item.purpose)}・${escapeHtml(item.accountType)}</small></div><b>${yen(item.balance)}</b></div>`).join("") : '<div class="empty">設定から銀行口座を登録できます。</div>';
   const more = $("homeBankMore");
   if (more) more.textContent = accounts.length > 5 ? `ほか ${accounts.length-5}口座` : "";
+}
+function renderHomeInsuranceSummary() {
+  const policies = state.insurancePolicies || [];
+  const monthly = policies.reduce((sum,item)=>sum+insuranceMonthlyPremium(item),0);
+  const annual = policies.reduce((sum,item)=>sum+insuranceAnnualPremium(item),0);
+  const coverage = policies.reduce((sum,item)=>sum+num(item.coverageAmount),0);
+  const assets = insuranceAssetTotal();
+  const upcoming = policies.filter(item=>item.renewalDate && String(item.renewalDate) >= today()).sort((a,b)=>String(a.renewalDate).localeCompare(String(b.renewalDate)))[0]
+    || policies.filter(item=>item.renewalDate).sort((a,b)=>String(a.renewalDate).localeCompare(String(b.renewalDate)))[0];
+  if ($("homeInsuranceCount")) $("homeInsuranceCount").textContent = `${policies.length}件`;
+  if ($("homeInsuranceMonthly")) $("homeInsuranceMonthly").textContent = yen(monthly);
+  if ($("homeInsuranceAnnual")) $("homeInsuranceAnnual").textContent = `年間 ${yen(annual)}`;
+  if ($("homeInsuranceCoverage")) $("homeInsuranceCoverage").textContent = yen(coverage);
+  if ($("homeInsuranceAssets")) $("homeInsuranceAssets").textContent = yen(assets);
+  if ($("homeInsuranceNext")) $("homeInsuranceNext").textContent = upcoming ? `${upcoming.renewalDate} ${upcoming.company || upcoming.name || upcoming.category}` : "更新日の登録なし";
+  if ($("homeInsuranceHint")) $("homeInsuranceHint").textContent = policies.length ? `${policies.length}件の契約を登録中。保険料・保障・更新日をまとめて確認できます。` : "学資・個人年金・生命保険などを登録してください。";
 }
 let selectedBankOwner = "すべて";
 function bankPurposeClass(purpose) {
@@ -2061,6 +2078,11 @@ document.querySelectorAll(".future-jump").forEach(button => button.addEventListe
   const target=button.dataset.targetScreen;
   const navButton=document.querySelector(`.nav-button[data-screen="${target}"]`);
   if(navButton) navButton.click();
+  const scrollTarget=button.dataset.scrollTarget;
+  if(scrollTarget) setTimeout(() => {
+    const element=document.getElementById(scrollTarget);
+    if(element){ element.scrollIntoView({behavior:"smooth",block:"start"}); if(element.tagName==="DETAILS") element.open=true; }
+  },180);
 }));
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));

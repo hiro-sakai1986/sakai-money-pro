@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第20弾 保険管理版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第21弾 保険ホームカード版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第20弾・保険管理版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第21弾・保険ホームカード版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -42,6 +42,23 @@
         <div class="home-bank-total"><span>口座別に登録済み</span><strong id="homeBankTotal">¥0</strong></div>
         <div id="homeBankAccounts" class="home-bank-accounts"></div>
         <div class="home-bank-footer"><small id="homeBankMore"></small><button type="button" class="secondary future-jump" data-target-screen="settingsScreen">口座を管理</button></div>
+      </article>
+
+      <div class="section-heading home-insurance-heading"><div><p>INSURANCE</p><h2>家族の保険</h2></div><span id="homeInsuranceCount" class="future-snapshot-chip">0件</span></div>
+      <article class="card home-insurance-card">
+        <div class="home-insurance-top">
+          <div><span>毎月の保険料</span><strong id="homeInsuranceMonthly">¥0</strong><small id="homeInsuranceAnnual">年間 ¥0</small></div>
+          <div class="home-insurance-shield" aria-hidden="true">🛡️</div>
+        </div>
+        <div class="home-insurance-grid">
+          <div><span>保障額合計</span><strong id="homeInsuranceCoverage">¥0</strong></div>
+          <div><span>保険の資産価値</span><strong id="homeInsuranceAssets">¥0</strong></div>
+        </div>
+        <div class="home-insurance-next"><span>次の更新予定</span><strong id="homeInsuranceNext">更新日の登録なし</strong></div>
+        <div class="home-insurance-footer">
+          <small id="homeInsuranceHint">学資・個人年金・生命保険などをまとめて管理できます。</small>
+          <button type="button" class="secondary future-jump" data-target-screen="educationScreen" data-scroll-target="insuranceEditor">保険を管理</button>
+        </div>
       </article>
 
       <div class="section-heading future-snapshot-heading"><div><p>FAMILY FUTURE</p><h2>家族のお金・ひと目で確認</h2></div><span class="future-snapshot-chip">あとどれくらい？</span></div>
