@@ -142,6 +142,8 @@ function normalize(raw) {
     accountType: String(item?.accountType || "普通預金").trim(),
     purpose: String(item?.purpose || "生活費").trim(),
     balance: num(item?.balance),
+    fundingSource: item?.fundingSource === "new" ? "new" : "allocated",
+    openingBalance: item?.openingBalance == null ? num(item?.balance) : num(item?.openingBalance),
     updatedAt: String(item?.updatedAt || today()),
     memo: String(item?.memo || "").trim()
   })).filter(item => item.bankName) : [];
@@ -587,10 +589,15 @@ function mortgageMetrics() {
 }
 function bankAccountsTotal() { return (state.bankAccounts || []).reduce((sum, item) => sum + num(item.balance), 0); }
 function syncCashFromBanks() { state.cash = bankAccountsTotal() + num(state.unallocatedCash); }
-function applyBankBalanceDifference(difference) {
-  const delta = Number(difference) || 0;
-  if (delta > 0) state.unallocatedCash = Math.max(0, num(state.unallocatedCash) - delta);
-  if (delta < 0) state.unallocatedCash = num(state.unallocatedCash) + Math.abs(delta);
+function allocateExistingDeposit(amount) {
+  const value = Math.max(0, num(amount));
+  if (value > num(state.unallocatedCash)) return false;
+  state.unallocatedCash = Math.max(0, num(state.unallocatedCash) - value);
+  state.bankAllocationAdjusted = true;
+  return true;
+}
+function returnBankBalanceToUnallocated(amount) {
+  state.unallocatedCash = num(state.unallocatedCash) + Math.max(0, num(amount));
   state.bankAllocationAdjusted = true;
   syncCashFromBanks();
 }
@@ -966,7 +973,7 @@ function renderBankAccounts() {
   list.innerHTML = accounts.length ? accounts.map(item => {
     const stale = daysSince(item.updatedAt) >= 90;
     return `<article class="bank-account-item purpose-${bankPurposeClass(item.purpose)}">
-      <div class="bank-account-main"><div><div class="bank-chip-row"><span class="bank-owner-chip">${escapeHtml(item.owner)}</span><span class="bank-purpose-chip">${escapeHtml(item.purpose)}</span>${stale?'<span class="bank-stale-chip">要更新</span>':''}</div><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.accountType)}　最終更新 ${escapeHtml(item.updatedAt)}</small></div><b>${yen(item.balance)}</b></div>
+      <div class="bank-account-main"><div><div class="bank-chip-row"><span class="bank-owner-chip">${escapeHtml(item.owner)}</span><span class="bank-purpose-chip">${escapeHtml(item.purpose)}</span><span class="bank-source-chip ${item.fundingSource === "new" ? "is-new" : "is-allocated"}">${item.fundingSource === "new" ? "新規預金" : "既存振分"}</span>${stale?'<span class="bank-stale-chip">要更新</span>':''}</div><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.accountType)}　最終更新 ${escapeHtml(item.updatedAt)}</small></div><b>${yen(item.balance)}</b></div>
       ${item.memo ? `<p>${escapeHtml(item.memo)}</p>` : ""}
       <div class="item-actions"><button class="edit-button" data-edit-bank="${item.id}">編集</button><button class="delete-button" data-delete-bank="${item.id}">削除</button></div>
     </article>`;
@@ -988,13 +995,15 @@ function renderBankAccounts() {
   let message = all.length ? "口座別残高を登録できています。更新日をそろえると、預金合計をより正確に把握できます。" : "まずは残高が大きい口座から登録すると、預金全体を早く把握できます。";
   if (concentrated >= .6) message = `${top.bankName}に登録預金の${Math.round(concentrated*100)}%が集中しています。目的や預金保護の観点から、必要に応じて分散も検討できます。`;
   else if (staleCount) message = `${staleCount}口座が90日以上更新されていません。残高を確認すると、総預金の精度が上がります。`;
-  else if (num(state.unallocatedCash)>0 && all.length) message = `未振り分け預金が${yen(state.unallocatedCash)}あります。口座登録が終わった分だけ未振り分け額を減らすと、二重計上を防げます。`;
+  else if (num(state.unallocatedCash)>0 && all.length) message = `未振り分け預金が${yen(state.unallocatedCash)}あります。既存の預金口座を追加するときは「既存預金を振り分ける」を選ぶと自動で差し引かれます。`;
   advice.innerHTML=`<div class="bank-advice-title"><span>Ｃ</span><div><strong>チャーリーから口座チェック</strong><small>登録内容を端末内で分析</small></div></div><p>${escapeHtml(message)}</p>`;
 }
 function clearBankAccountForm() {
   $("bankAccountId").value = "";
   $("bankName").value = ""; $("bankBalance").value = ""; $("bankMemo").value = "";
   $("bankOwner").value = "本人"; $("bankAccountType").value = "普通預金"; $("bankPurpose").value = "生活費"; $("bankUpdatedAt").value = today();
+  if ($("bankFundingSource")) { $("bankFundingSource").value = "allocated"; $("bankFundingSource").disabled = false; }
+  if ($("bankFundingHint")) $("bankFundingHint").textContent = `未振り分け預金 ${yen(state.unallocatedCash)} から差し引きます。`;
   $("saveBankAccountButton").textContent = "銀行口座を追加"; $("cancelBankAccountEdit").classList.add("hidden");
 }
 function setChangeMetric(valueId, subId, value, label) {
@@ -2063,15 +2072,33 @@ $("bankOwnerTabs")?.addEventListener("click", event => {
   $("bankOwnerTabs").querySelectorAll("button").forEach(item=>item.classList.toggle("active", item===button));
   renderBankAccounts();
 });
+$("bankFundingSource")?.addEventListener("change", () => {
+  const mode = $("bankFundingSource").value;
+  $("bankFundingHint").textContent = mode === "allocated"
+    ? `未振り分け預金 ${yen(state.unallocatedCash)} から差し引きます。`
+    : "未振り分け預金は減らさず、預金総額に新しく加算します。";
+});
 $("saveBankAccountButton").addEventListener("click", () => {
   const bankName = $("bankName").value.trim();
   if (!bankName) return alert("銀行名・口座名を入力してください");
   const id = $("bankAccountId").value || uid();
-  const item = { id, owner: normalizeOwner($("bankOwner").value), bankName, accountType: $("bankAccountType").value, purpose: $("bankPurpose").value, balance: num($("bankBalance").value), updatedAt: $("bankUpdatedAt").value || today(), memo: $("bankMemo").value.trim() };
   const index = state.bankAccounts.findIndex(account => account.id === id);
-  const previousBalance = index >= 0 ? num(state.bankAccounts[index].balance) : 0;
-  if (index >= 0) state.bankAccounts[index] = item; else state.bankAccounts.push(item);
-  applyBankBalanceDifference(item.balance - previousBalance);
+  const isEditing = index >= 0;
+  const previous = isEditing ? state.bankAccounts[index] : null;
+  const fundingSource = isEditing ? (previous.fundingSource || "allocated") : ($("bankFundingSource")?.value || "allocated");
+  const balance = num($("bankBalance").value);
+  if (!isEditing && fundingSource === "allocated" && balance > num(state.unallocatedCash)) {
+    return alert(`未振り分け預金は${yen(state.unallocatedCash)}です。登録額を減らすか、「新しく増えた預金」を選んでください。`);
+  }
+  if (!isEditing && fundingSource === "allocated" && !allocateExistingDeposit(balance)) return;
+  const item = {
+    id, owner: normalizeOwner($("bankOwner").value), bankName,
+    accountType: $("bankAccountType").value, purpose: $("bankPurpose").value,
+    balance, fundingSource, openingBalance: previous?.openingBalance ?? balance,
+    updatedAt: $("bankUpdatedAt").value || today(), memo: $("bankMemo").value.trim()
+  };
+  if (isEditing) state.bankAccounts[index] = item; else state.bankAccounts.push(item);
+  syncCashFromBanks();
   saveState(); clearBankAccountForm(); renderAll();
 });
 $("cancelBankAccountEdit").addEventListener("click", clearBankAccountForm);
@@ -2080,13 +2107,15 @@ document.addEventListener("click", event => {
   if (edit) {
     const item = state.bankAccounts.find(account => account.id === edit.dataset.editBank); if (!item) return;
     $("bankAccountId").value=item.id; $("bankOwner").value=item.owner; $("bankName").value=item.bankName; $("bankAccountType").value=item.accountType; $("bankPurpose").value=item.purpose; $("bankBalance").value=item.balance; $("bankUpdatedAt").value=item.updatedAt; $("bankMemo").value=item.memo || "";
+    if ($("bankFundingSource")) { $("bankFundingSource").value=item.fundingSource || "allocated"; $("bankFundingSource").disabled=true; }
+    if ($("bankFundingHint")) $("bankFundingHint").textContent="登録後の残高変更は、預金総額へそのまま反映されます。";
     $("saveBankAccountButton").textContent="変更を保存"; $("cancelBankAccountEdit").classList.remove("hidden"); $("bankAccountEditor").open=true; $("bankAccountEditor").scrollIntoView({behavior:"smooth",block:"center"}); return;
   }
   const del = event.target.closest("[data-delete-bank]");
   if (del && confirm("この銀行口座を削除しますか？")) {
     const removed = state.bankAccounts.find(account => account.id === del.dataset.deleteBank);
     state.bankAccounts = state.bankAccounts.filter(account => account.id !== del.dataset.deleteBank);
-    applyBankBalanceDifference(-num(removed?.balance));
+    returnBankBalanceToUnallocated(num(removed?.balance));
     saveState(); renderAll();
   }
 });
@@ -2099,7 +2128,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta18-1-bank-allocation-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta19-bank-registration-mode", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
