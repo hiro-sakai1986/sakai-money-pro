@@ -24,6 +24,7 @@ const defaultState = {
   cash: 0,
   unallocatedCash: 0,
   bankAccounts: [],
+  bankAllocationAdjusted: false,
   loan: 0,
   assetGoal: 10000000,
   futureSimulation: { annualReturn: 3, monthlyExtra: 0, horizon: 20 },
@@ -146,6 +147,13 @@ function normalize(raw) {
   })).filter(item => item.bankName) : [];
   const bankTotal = s.bankAccounts.reduce((sum, item) => sum + num(item.balance), 0);
   s.unallocatedCash = rawHasUnallocatedCash ? num(s.unallocatedCash) : Math.max(0, num(s.cash) - bankTotal);
+  // 第17〜18弾で登録口座が未振り分け預金から差し引かれず、二重計上されたデータを一度だけ補正する。
+  if (!Boolean(raw?.bankAllocationAdjusted) && rawHasUnallocatedCash && bankTotal > 0) {
+    s.unallocatedCash = Math.max(0, s.unallocatedCash - bankTotal);
+    s.bankAllocationAdjusted = true;
+  } else {
+    s.bankAllocationAdjusted = Boolean(s.bankAllocationAdjusted);
+  }
   s.cash = bankTotal + s.unallocatedCash;
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
@@ -579,6 +587,13 @@ function mortgageMetrics() {
 }
 function bankAccountsTotal() { return (state.bankAccounts || []).reduce((sum, item) => sum + num(item.balance), 0); }
 function syncCashFromBanks() { state.cash = bankAccountsTotal() + num(state.unallocatedCash); }
+function applyBankBalanceDifference(difference) {
+  const delta = Number(difference) || 0;
+  if (delta > 0) state.unallocatedCash = Math.max(0, num(state.unallocatedCash) - delta);
+  if (delta < 0) state.unallocatedCash = num(state.unallocatedCash) + Math.abs(delta);
+  state.bankAllocationAdjusted = true;
+  syncCashFromBanks();
+}
 function financialAssets() { return num(state.cash) + investmentTotals().market + educationTotal(); }
 function netWorthValue() { return financialAssets() - num(state.loan); }
 function recordSnapshot() {
@@ -2054,8 +2069,10 @@ $("saveBankAccountButton").addEventListener("click", () => {
   const id = $("bankAccountId").value || uid();
   const item = { id, owner: normalizeOwner($("bankOwner").value), bankName, accountType: $("bankAccountType").value, purpose: $("bankPurpose").value, balance: num($("bankBalance").value), updatedAt: $("bankUpdatedAt").value || today(), memo: $("bankMemo").value.trim() };
   const index = state.bankAccounts.findIndex(account => account.id === id);
+  const previousBalance = index >= 0 ? num(state.bankAccounts[index].balance) : 0;
   if (index >= 0) state.bankAccounts[index] = item; else state.bankAccounts.push(item);
-  syncCashFromBanks(); saveState(); clearBankAccountForm(); renderAll();
+  applyBankBalanceDifference(item.balance - previousBalance);
+  saveState(); clearBankAccountForm(); renderAll();
 });
 $("cancelBankAccountEdit").addEventListener("click", clearBankAccountForm);
 document.addEventListener("click", event => {
@@ -2066,7 +2083,12 @@ document.addEventListener("click", event => {
     $("saveBankAccountButton").textContent="変更を保存"; $("cancelBankAccountEdit").classList.remove("hidden"); $("bankAccountEditor").open=true; $("bankAccountEditor").scrollIntoView({behavior:"smooth",block:"center"}); return;
   }
   const del = event.target.closest("[data-delete-bank]");
-  if (del && confirm("この銀行口座を削除しますか？")) { state.bankAccounts = state.bankAccounts.filter(account => account.id !== del.dataset.deleteBank); syncCashFromBanks(); saveState(); renderAll(); }
+  if (del && confirm("この銀行口座を削除しますか？")) {
+    const removed = state.bankAccounts.find(account => account.id === del.dataset.deleteBank);
+    state.bankAccounts = state.bankAccounts.filter(account => account.id !== del.dataset.deleteBank);
+    applyBankBalanceDifference(-num(removed?.balance));
+    saveState(); renderAll();
+  }
 });
 $("saveBaseButton").addEventListener("click", () => {
   state.unallocatedCash = num($("cashInput").value); syncCashFromBanks(); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
@@ -2077,7 +2099,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta18-bank-dashboard", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta18-1-bank-allocation-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
