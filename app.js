@@ -132,7 +132,15 @@ function normalize(raw) {
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
-  s.snapshots = Array.isArray(s.snapshots) ? s.snapshots : [];
+  s.snapshots = Array.isArray(s.snapshots) ? s.snapshots.map(item => ({
+    ...item,
+    month: String(item.month || monthKey()),
+    financial: num(item.financial),
+    netWorth: num(item.netWorth),
+    investment: item.investment == null ? null : num(item.investment),
+    annualDividend: item.annualDividend == null ? null : num(item.annualDividend),
+    receivedDividend: item.receivedDividend == null ? null : num(item.receivedDividend)
+  })) : [];
   s.lifeEvents = Array.isArray(s.lifeEvents) ? s.lifeEvents : clone(defaultState.lifeEvents);
   s.savingsGoals = Array.isArray(s.savingsGoals) ? s.savingsGoals : clone(defaultState.savingsGoals);
   s.education = { ...defaultState.education, ...(s.education || {}) };
@@ -518,7 +526,9 @@ function financialAssets() { return num(state.cash) + investmentTotals().market 
 function netWorthValue() { return financialAssets() - num(state.loan); }
 function recordSnapshot() {
   const month = monthKey();
-  const item = { month, financial: financialAssets(), netWorth: netWorthValue(), savedAt: new Date().toISOString() };
+  const annualDividend = investmentTotals().dividend;
+  const receivedDividend = state.dividendReceipts.filter(x => String(x.date || "").startsWith(String(new Date().getFullYear()))).reduce((s,x)=>s+num(x.amount),0);
+  const item = { month, financial: financialAssets(), netWorth: netWorthValue(), investment: investmentTotals().market, annualDividend, receivedDividend, savedAt: new Date().toISOString() };
   const index = state.snapshots.findIndex(x => x.month === month);
   if (index >= 0) state.snapshots[index] = item; else state.snapshots.push(item);
   state.snapshots = state.snapshots.sort((a, b) => a.month.localeCompare(b.month)).slice(-60);
@@ -682,6 +692,55 @@ function drawTrend() {
   ctx.fillText(yen(values[values.length - 1]), x(values.length - 1), Math.max(12, y(values[values.length - 1]) - 10));
   $("trendNote").textContent = data.length < 2 ? "今月分を記録しました。来月以降、推移が線でつながります。" : `直近${data.length}か月の純資産推移です。`;
 }
+
+function historyValue(item, key) {
+  if (item && item[key] != null) return num(item[key]);
+  if (key === "investment") return Math.max(0, num(item?.financial) - num(state.cash) - educationTotal());
+  if (key === "annualDividend") return 0;
+  return num(item?.[key]);
+}
+function drawHistoryLine(canvasId, series, labels, options = {}) {
+  const canvas = $(canvasId); if (!canvas) return;
+  const ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = options.height || 260;
+  canvas.width = w*dpr; canvas.height = h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const all = series.flatMap(s=>s.values).filter(Number.isFinite);
+  if (!all.length) return;
+  let min = Math.min(...all), max = Math.max(...all);
+  if (options.zeroBase) min = 0;
+  if (min===max) { max += Math.max(1000,Math.abs(max)*.1); min = options.zeroBase ? 0 : min-Math.max(1000,Math.abs(min)*.1); }
+  const pad={left:58,right:16,top:20,bottom:38}, range=max-min||1;
+  const x=i=>pad.left+(labels.length===1?(w-pad.left-pad.right)/2:i*(w-pad.left-pad.right)/(labels.length-1));
+  const y=v=>pad.top+(max-v)/range*(h-pad.top-pad.bottom);
+  const styles=getComputedStyle(document.body), grid=styles.getPropertyValue("--line").trim(), muted=styles.getPropertyValue("--muted").trim();
+  ctx.font="10px sans-serif"; ctx.fillStyle=muted; ctx.textAlign="right"; ctx.strokeStyle=grid; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const yy=pad.top+i*(h-pad.top-pad.bottom)/4,val=max-i*range/4;ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(w-pad.right,yy);ctx.stroke();ctx.fillText(`${Math.round(val/10000)}万`,pad.left-7,yy+3)}
+  series.forEach((s,si)=>{ctx.beginPath();s.values.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.strokeStyle=s.color;ctx.lineWidth=3;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();s.values.forEach((v,i)=>{ctx.beginPath();ctx.arc(x(i),y(v),3.5,0,Math.PI*2);ctx.fillStyle=s.color;ctx.fill()})});
+  labels.forEach((lab,i)=>{ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="10px sans-serif";ctx.fillText(lab.slice(5)+"月",x(i),h-14)});
+}
+function renderHistoryDashboard() {
+  if (!$('wealthHistoryChart')) return;
+  const data=[...state.snapshots].sort((a,b)=>String(a.month).localeCompare(String(b.month))).slice(-12);
+  const inv=investmentTotals(), financial=financialAssets(), annual=inv.dividend;
+  const prev=data.length>1?data[data.length-2]:null;
+  const current=data[data.length-1]||null;
+  const signed=(v)=>v==null?'前月比 —':`前月比 ${v>=0?'+':''}${yen(v)}`;
+  $('historyFinancialNow').textContent=yen(financial);
+  $('historyInvestmentNow').textContent=yen(inv.market);
+  $('historyDividendNow').textContent=yen(annual);
+  $('historyFinancialChange').textContent=signed(prev?financial-num(prev.financial):null);
+  $('historyInvestmentChange').textContent=signed(prev?inv.market-historyValue(prev,'investment'):null);
+  $('historyDividendChange').textContent=signed(prev?annual-historyValue(prev,'annualDividend'):null);
+  const highest=data.reduce((best,x)=>!best||num(x.financial)>num(best.financial)?x:best,null);
+  $('historyHighest').textContent=yen(highest?highest.financial:financial);
+  $('historyHighestMonth').textContent=highest?`${highest.month.replace('-','年')}月時点`:'今月時点';
+  const labels=data.map(x=>x.month);
+  const styles=getComputedStyle(document.body);
+  drawHistoryLine('wealthHistoryChart',[{values:data.map(x=>num(x.financial)),color:styles.getPropertyValue('--accent').trim()},{values:data.map(x=>historyValue(x,'investment')),color:'#4f9478'}],labels,{height:280});
+  drawHistoryLine('dividendHistoryChart',[{values:data.map(x=>historyValue(x,'annualDividend')),color:'#c24c9a'}],labels,{height:240,zeroBase:true});
+  $('historyNote').textContent=data.length<2?'今月分を記録しました。来月以降、推移がつながります。':`直近${data.length}か月の資産・配当予想を記録しています。`;
+}
+
 function setupMonthOptions() {
   const previous = $("txMonth").value;
   const months = new Set(state.transactions.map(t => monthKey(t.date)));
@@ -1229,7 +1288,7 @@ function clearGoalForm() {
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
+  renderGreeting(); renderTheme(); renderHome(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
@@ -1533,7 +1592,7 @@ document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
-  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); }, 50);
+  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); renderHistoryDashboard(); }, 50);
   if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
   if (b.dataset.screen === "budgetScreen") setTimeout(() => drawBudgetTrend(selectedBudgetMonth()), 50);
 }));
@@ -1571,7 +1630,8 @@ $("saveBaseButton").addEventListener("click", () => {
   state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
-$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
+$("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify({ version: "8.0-beta9-dividend-pro", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -1586,7 +1646,7 @@ $("resetButton").addEventListener("click", () => {
   if (!confirm("すべての入力データを削除します。よろしいですか？")) return;
   state = clone(defaultState); saveState(); renderAll();
 });
-window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
+window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); renderHistoryDashboard(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
 $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
 $("planMethod").addEventListener("change", syncPlanMethodUI);

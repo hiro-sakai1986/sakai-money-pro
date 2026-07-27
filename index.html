@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第9弾 配当金管理Pro</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第10弾 資産・配当推移</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第9弾・配当金管理Pro</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第10弾・資産配当推移版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -64,6 +64,24 @@
       <article class="card chart-card trend-card">
         <canvas id="trendChart" width="640" height="260" aria-label="資産推移グラフ"></canvas>
         <p class="chart-note" id="trendNote">月ごとの資産額を自動記録します。</p>
+      </article>
+
+      <div class="section-heading history-heading"><div><p>WEALTH HISTORY</p><h2>資産・配当推移ダッシュボード</h2></div><button id="saveHistorySnapshot" class="secondary history-save-button">今月を記録</button></div>
+      <div class="history-summary-grid">
+        <article class="card history-summary-card"><span>金融資産</span><strong id="historyFinancialNow">¥0</strong><small id="historyFinancialChange">前月比 —</small></article>
+        <article class="card history-summary-card"><span>投資評価額</span><strong id="historyInvestmentNow">¥0</strong><small id="historyInvestmentChange">前月比 —</small></article>
+        <article class="card history-summary-card"><span>年間配当予想</span><strong id="historyDividendNow">¥0</strong><small id="historyDividendChange">前月比 —</small></article>
+        <article class="card history-summary-card"><span>過去最高の金融資産</span><strong id="historyHighest">¥0</strong><small id="historyHighestMonth">記録なし</small></article>
+      </div>
+      <article class="card chart-card history-chart-card">
+        <div class="history-chart-head"><strong>金融資産と投資評価額</strong><small>直近12か月</small></div>
+        <canvas id="wealthHistoryChart" width="640" height="280" aria-label="金融資産と投資評価額の推移"></canvas>
+        <div class="history-legend"><span><i class="financial-dot"></i>金融資産</span><span><i class="investment-dot"></i>投資評価額</span></div>
+      </article>
+      <article class="card chart-card history-chart-card">
+        <div class="history-chart-head"><strong>年間配当予想の推移</strong><small>月末時点</small></div>
+        <canvas id="dividendHistoryChart" width="640" height="240" aria-label="年間配当予想の推移"></canvas>
+        <p class="chart-note" id="historyNote">毎月の記録が増えると推移がつながります。</p>
       </article>
 
       <h2>今月の状況</h2>
