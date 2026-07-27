@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第8弾 同一登録確認版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第15弾 ライフプランタイムライン版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第8弾・同一登録確認版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第15弾・ライフプランタイムライン版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -36,6 +36,19 @@
         <article class="card metric-card"><span>今月収支</span><strong id="monthlyBalance">¥0</strong></article>
         <article class="card metric-card"><span>毎月の積立</span><strong id="monthlyPlans">¥0</strong></article>
       </div>
+
+      <div class="section-heading future-snapshot-heading"><div><p>FAMILY FUTURE</p><h2>家族のお金・ひと目で確認</h2></div><span class="future-snapshot-chip">あとどれくらい？</span></div>
+      <article class="card future-snapshot-card">
+        <div class="future-snapshot-overview">
+          <div><span>目標の平均進捗</span><strong id="futureOverallRate">0%</strong><small id="futureOverallSub">目標を登録すると表示</small></div>
+          <div class="future-ring" id="futureOverallRing"><b id="futureRingValue">0%</b></div>
+        </div>
+        <div id="futureSnapshotRows" class="future-snapshot-rows"></div>
+        <div class="future-snapshot-actions">
+          <button type="button" class="secondary future-jump" data-target-screen="educationScreen">目標を編集</button>
+          <button type="button" class="secondary future-jump" data-target-screen="investScreen">投資を確認</button>
+        </div>
+      </article>
 
       <div class="section-heading"><div><p>SMART INSIGHT</p><h2>チャーリーからひとこと</h2></div><span class="live-badge">LIVE</span></div>
       <article class="card charlie-card">
@@ -60,10 +73,66 @@
         <div class="progress-track"><div id="goalProgress" class="progress-bar"></div></div>
       </article>
 
+      <div class="section-heading goal-dashboard-heading"><div><p>LIFE GOALS</p><h2>家族の目標ダッシュボード</h2></div><span class="goal-dashboard-chip">あとどれくらい？</span></div>
+      <div id="lifeGoalDashboard" class="life-goal-dashboard"></div>
+
+      <div class="section-heading roadmap-heading"><div><p>FAMILY ROADMAP</p><h2>これからの道のり</h2></div><span class="roadmap-chip">優先順位を見える化</span></div>
+      <div class="roadmap-summary-grid">
+        <article class="card roadmap-summary-card"><span>全体の進捗</span><strong id="roadmapOverallRate">0%</strong><small id="roadmapOverallSub">目標を登録すると表示</small></article>
+        <article class="card roadmap-summary-card"><span>達成に近い目標</span><strong id="roadmapClosestGoal">—</strong><small id="roadmapClosestSub">—</small></article>
+        <article class="card roadmap-summary-card"><span>次の期限</span><strong id="roadmapNextDeadline">—</strong><small id="roadmapNextDeadlineSub">—</small></article>
+        <article class="card roadmap-summary-card"><span>要確認</span><strong id="roadmapAttentionCount">0件</strong><small id="roadmapAttentionSub">順調です</small></article>
+      </div>
+      <article class="card roadmap-focus-card">
+        <div class="roadmap-focus-head"><div><span>今いちばん意識したいこと</span><strong id="roadmapFocusTitle">目標を登録してください</strong></div><b id="roadmapFocusBadge">—</b></div>
+        <p id="roadmapFocusText">ライフ画面で期限と毎月積立を設定すると、優先度を自動判定します。</p>
+      </article>
+      <article class="card roadmap-timeline-card">
+        <div class="roadmap-timeline-head"><div><strong>家族の予定タイムライン</strong><small>近い予定から6件</small></div></div>
+        <div id="roadmapTimeline" class="roadmap-timeline"></div>
+      </article>
+
+
+      <div class="section-heading life-plan-heading"><div><p>FUTURE TIMELINE</p><h2>サカイ家の未来年表</h2></div><span class="life-plan-chip">資産・ローン・家族の予定</span></div>
+      <div class="life-plan-summary-grid">
+        <article class="card life-plan-summary"><span>次の節目</span><strong id="lifeTimelineNext">—</strong><small id="lifeTimelineNextSub">予定を登録すると表示</small></article>
+        <article class="card life-plan-summary"><span>10年後の金融資産見込み</span><strong id="lifeTimelineAsset10">—</strong><small id="lifeTimelineAsset10Sub">運用益を含めない単純積立</small></article>
+        <article class="card life-plan-summary"><span>10年後のローン残高</span><strong id="lifeTimelineLoan10">—</strong><small id="lifeTimelineLoan10Sub">現在条件での概算</small></article>
+      </div>
+      <article class="card life-plan-card">
+        <div class="life-plan-note">登録済みのライフイベント・積立目標・住宅ローンを1本の年表にまとめています。金融資産見込みは、現在額に毎月積立を足した単純計算で、運用益や生活費の増減は含みません。</div>
+        <div id="lifePlanTimeline" class="life-plan-timeline"></div>
+      </article>
+
+      <h2>住宅ローン残高の見通し</h2>
+      <article class="card chart-card mortgage-home-chart-card">
+        <div class="mortgage-chart-head"><div><strong id="mortgageChartTitle">完済までの残高予測</strong><small id="mortgageChartSub">住宅ローンを入力すると表示されます</small></div><span id="mortgageChartBadge" class="mortgage-chart-badge">未設定</span></div>
+        <canvas id="mortgageBalanceChart" width="640" height="280" aria-label="住宅ローン残高の推移予測"></canvas>
+        <p class="chart-note" id="mortgageChartNote">現在の残高・金利・返済額から概算します。</p>
+      </article>
+
       <h2>資産推移</h2>
       <article class="card chart-card trend-card">
         <canvas id="trendChart" width="640" height="260" aria-label="資産推移グラフ"></canvas>
         <p class="chart-note" id="trendNote">月ごとの資産額を自動記録します。</p>
+      </article>
+
+      <div class="section-heading history-heading"><div><p>WEALTH HISTORY</p><h2>資産・配当推移ダッシュボード</h2></div><button id="saveHistorySnapshot" class="secondary history-save-button">今月を記録</button></div>
+      <div class="history-summary-grid">
+        <article class="card history-summary-card"><span>金融資産</span><strong id="historyFinancialNow">¥0</strong><small id="historyFinancialChange">前月比 —</small></article>
+        <article class="card history-summary-card"><span>投資評価額</span><strong id="historyInvestmentNow">¥0</strong><small id="historyInvestmentChange">前月比 —</small></article>
+        <article class="card history-summary-card"><span>年間配当予想</span><strong id="historyDividendNow">¥0</strong><small id="historyDividendChange">前月比 —</small></article>
+        <article class="card history-summary-card"><span>過去最高の金融資産</span><strong id="historyHighest">¥0</strong><small id="historyHighestMonth">記録なし</small></article>
+      </div>
+      <article class="card chart-card history-chart-card">
+        <div class="history-chart-head"><strong>金融資産と投資評価額</strong><small>直近12か月</small></div>
+        <canvas id="wealthHistoryChart" width="640" height="280" aria-label="金融資産と投資評価額の推移"></canvas>
+        <div class="history-legend"><span><i class="financial-dot"></i>金融資産</span><span><i class="investment-dot"></i>投資評価額</span></div>
+      </article>
+      <article class="card chart-card history-chart-card">
+        <div class="history-chart-head"><strong>年間配当予想の推移</strong><small>月末時点</small></div>
+        <canvas id="dividendHistoryChart" width="640" height="240" aria-label="年間配当予想の推移"></canvas>
+        <p class="chart-note" id="historyNote">毎月の記録が増えると推移がつながります。</p>
       </article>
 
       <h2>今月の状況</h2>
@@ -338,11 +407,35 @@
 
       <div id="investmentDividendView" class="investment-view">
         <div class="view-title-row"><div><p class="screen-kicker">DIVIDEND</p><h2>配当カレンダー</h2></div></div>
-        <div class="dividend-summary-grid">
-          <article class="card"><span>年間配当見込み</span><strong id="dividendAnnualView">¥0</strong></article>
-          <article class="card"><span>次の配当月</span><strong id="dividendNextView">未設定</strong></article>
+        <div class="dividend-pro-summary">
+          <article class="card"><span>年間配当予定</span><strong id="dividendAnnualView">¥0</strong><small>登録済みの税引前年間予想</small></article>
+          <article class="card"><span>今年の受取済み</span><strong id="dividendReceivedView">¥0</strong><small id="dividendReceiptCountView">0件を記録</small></article>
+          <article class="card"><span>今年の残り予定</span><strong id="dividendRemainingView">¥0</strong><small>予定 − 受取済み</small></article>
+          <article class="card"><span>次の配当月</span><strong id="dividendNextView">未設定</strong><small id="dividendNextNamesView">配当月を登録してください</small></article>
         </div>
+
+        <article id="dividendNoticeCard" class="card dividend-notice-card"></article>
+
+        <div class="dividend-section-title"><div><p class="screen-kicker">MONTHLY PLAN</p><h3>月別の配当予定</h3></div><button id="showYieldRankingButton" class="secondary compact-button">利回りランキング</button></div>
         <article class="card dividend-calendar-card"><div id="dividendCalendar" class="calendar-grid"></div></article>
+        <article class="card dividend-bars-card"><div id="dividendMonthlyBars" class="dividend-monthly-bars"></div></article>
+
+        <details id="dividendReceiptEditor" class="investment-entry-details dividend-receipt-editor">
+          <summary>＋ 受け取った配当金を記録する</summary>
+          <div id="dividendReceiptFormWrap" class="card form-card investment-form-card">
+            <input id="dividendReceiptId" type="hidden">
+            <div class="form-grid">
+              <label>受取日<input id="dividendReceiptDate" type="date"></label>
+              <label>銘柄<select id="dividendReceiptAsset"></select></label>
+              <label>受取額（円）<input id="dividendReceiptAmount" type="number" min="0" step="1" inputmode="numeric"></label>
+              <label>メモ<input id="dividendReceiptMemo" placeholder="例：2026年期末配当"></label>
+            </div>
+            <div class="form-actions"><button id="saveDividendReceiptButton" class="primary">受取を記録</button><button id="cancelDividendReceiptEdit" class="secondary hidden">編集をやめる</button></div>
+          </div>
+        </details>
+
+        <div class="dividend-section-title"><div><p class="screen-kicker">RECEIVED</p><h3>今年の受取履歴</h3></div><span id="dividendReceiptYearLabel" class="year-chip"></span></div>
+        <div id="dividendReceiptList" class="stack investment-stack"></div>
       </div>
     </section>
 
@@ -350,7 +443,8 @@
       <h2>住宅ローン</h2>
       <article class="card form-card">
         <div class="form-grid">
-          <label>ローン残高（円）<input id="mortgageBalance" type="number" min="0" inputmode="numeric"></label>
+          <label>借入時の金額（円）<input id="mortgageOriginalBalance" type="number" min="0" inputmode="numeric" placeholder="例：46000000"></label>
+          <label>現在のローン残高（円）<input id="mortgageBalance" type="number" min="0" inputmode="numeric"></label>
           <label>金利（％）<input id="mortgageRate" type="number" min="0" step="0.01" inputmode="decimal"></label>
           <label>毎月返済額（円）<input id="mortgageMonthly" type="number" min="0" inputmode="numeric"></label>
           <label>ボーナス返済・年額（円）<input id="mortgageBonus" type="number" min="0" inputmode="numeric"></label>
@@ -365,6 +459,11 @@
         <article class="card metric-card"><span>概算利息</span><strong id="mortgageInterestSummary">¥0</strong></article>
         <article class="card metric-card"><span>繰上返済後残高</span><strong id="mortgageAfterExtraSummary">¥0</strong></article>
       </div>
+      <article class="card mortgage-progress-detail">
+        <div class="mortgage-progress-detail-head"><div><span>返済の進み具合</span><strong id="mortgagePaidSummary">¥0返済済み</strong></div><b id="mortgageProgressRate">0%</b></div>
+        <div class="progress-track"><div id="mortgageProgressBar" class="progress-bar"></div></div>
+        <small id="mortgageProgressCaption">借入時の金額を入力すると進捗が分かります。</small>
+      </article>
 
       <h2>教育資金</h2>
       <article class="card form-card">

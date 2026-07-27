@@ -30,10 +30,11 @@ const defaultState = {
   nisaUsage: {},
   nisaPurchases: [],
   confirmedDuplicateGroups: [],
+  dividendReceipts: [],
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
-  mortgage: { balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
+  mortgage: { originalBalance: 0, balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
   savingsGoals: [
     { id: "default-car", category: "車", name: "セレナ買い替え", current: 0, target: 2000000, monthly: 20000, deadline: "2027-04-01" },
     { id: "default-travel", category: "旅行", name: "家族旅行", current: 0, target: 500000, monthly: 10000, deadline: "2027-10-01" },
@@ -116,15 +117,41 @@ function normalize(raw) {
   s.confirmedDuplicateGroups = Array.isArray(s.confirmedDuplicateGroups)
     ? [...new Set(s.confirmedDuplicateGroups.map(value => String(value || "")).filter(Boolean))]
     : [];
+  s.dividendReceipts = Array.isArray(s.dividendReceipts)
+    ? s.dividendReceipts.map(item => ({
+        ...item,
+        id: item?.id || uid(),
+        owner: normalizeOwner(item?.owner),
+        assetId: String(item?.assetId || ""),
+        name: String(item?.name || "").trim(),
+        date: String(item?.date || today()),
+        amount: num(item?.amount),
+        memo: String(item?.memo || "").trim()
+      })).filter(item => item.amount > 0)
+    : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
-  s.snapshots = Array.isArray(s.snapshots) ? s.snapshots : [];
+  s.snapshots = Array.isArray(s.snapshots) ? s.snapshots.map(item => ({
+    ...item,
+    month: String(item.month || monthKey()),
+    financial: num(item.financial),
+    netWorth: num(item.netWorth),
+    investment: item.investment == null ? null : num(item.investment),
+    annualDividend: item.annualDividend == null ? null : num(item.annualDividend),
+    receivedDividend: item.receivedDividend == null ? null : num(item.receivedDividend)
+  })) : [];
   s.lifeEvents = Array.isArray(s.lifeEvents) ? s.lifeEvents : clone(defaultState.lifeEvents);
   s.savingsGoals = Array.isArray(s.savingsGoals) ? s.savingsGoals : clone(defaultState.savingsGoals);
   s.education = { ...defaultState.education, ...(s.education || {}) };
   s.mortgage = { ...defaultState.mortgage, ...(s.mortgage || {}) };
+  // 旧版や途中版で使われた借入時金額の別名も引き継ぐ。
+  s.mortgage.originalBalance = num(
+    s.mortgage.originalBalance || s.mortgage.borrowAmount || s.mortgage.initialBalance || s.originalLoan
+  );
   if (!s.mortgage.balance && s.loan) s.mortgage.balance = Math.max(0, Number(s.loan) || 0);
+  s.mortgage.originalBalance = num(s.mortgage.originalBalance) || num(s.mortgage.balance);
+  if (s.mortgage.originalBalance < num(s.mortgage.balance)) s.mortgage.originalBalance = num(s.mortgage.balance);
   s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
   return s;
 }
@@ -495,17 +522,45 @@ function goalMetrics(g) {
   const rate = target ? Math.min(100, current / target * 100) : 0;
   return { current, target, monthly, remaining, months, neededMonthly, rate };
 }
+function mortgageProjection() {
+  const m = state.mortgage;
+  const now = new Date();
+  let balance = Math.max(0, num(m.balance) - num(m.extra));
+  const monthlyRate = num(m.rate) / 100 / 12;
+  const payment = num(m.monthly) + num(m.bonusAnnual) / 12;
+  const points = [{ year: now.getFullYear(), balance }];
+  let totalInterest = 0, months = 0;
+  const maxMonths = 60 * 12;
+  while (balance > 0.5 && months < maxMonths && payment > 0) {
+    const interest = balance * monthlyRate;
+    totalInterest += interest;
+    const principal = payment - interest;
+    if (principal <= 0) break;
+    balance = Math.max(0, balance - principal);
+    months += 1;
+    if (months % 12 === 0 || balance <= 0.5) {
+      points.push({ year: now.getFullYear() + Math.ceil(months / 12), balance });
+    }
+  }
+  const configuredEnd = Number(m.endYear || 0);
+  const projectedEnd = balance <= 0.5 ? now.getFullYear() + Math.ceil(months / 12) : null;
+  return { points, totalInterest, months, projectedEnd, configuredEnd, remainingBalance: balance, payment };
+}
 function mortgageMetrics() {
-  const m = state.mortgage, balance = num(m.balance), annual = num(m.monthly) * 12 + num(m.bonusAnnual);
-  const years = Math.max(0, Number(m.endYear || 0) - new Date().getFullYear());
-  const roughInterest = balance * (num(m.rate) / 100) * years / 2;
-  return { balance, annual, years, roughInterest, afterExtra: Math.max(0, balance - num(m.extra)) };
+  const m = state.mortgage, balance = num(m.balance), original = Math.max(num(m.originalBalance), balance), annual = num(m.monthly) * 12 + num(m.bonusAnnual);
+  const projection = mortgageProjection();
+  const years = projection.projectedEnd ? Math.max(0, projection.projectedEnd - new Date().getFullYear()) : Math.max(0, Number(m.endYear || 0) - new Date().getFullYear());
+  const paid = Math.max(0, original - balance);
+  const progress = original ? Math.min(100, paid / original * 100) : 0;
+  return { balance, original, paid, progress, annual, years, roughInterest: projection.totalInterest, afterExtra: Math.max(0, balance - num(m.extra)), projection };
 }
 function financialAssets() { return num(state.cash) + investmentTotals().market + educationTotal(); }
 function netWorthValue() { return financialAssets() - num(state.loan); }
 function recordSnapshot() {
   const month = monthKey();
-  const item = { month, financial: financialAssets(), netWorth: netWorthValue(), savedAt: new Date().toISOString() };
+  const annualDividend = investmentTotals().dividend;
+  const receivedDividend = state.dividendReceipts.filter(x => String(x.date || "").startsWith(String(new Date().getFullYear()))).reduce((s,x)=>s+num(x.amount),0);
+  const item = { month, financial: financialAssets(), netWorth: netWorthValue(), investment: investmentTotals().market, annualDividend, receivedDividend, savedAt: new Date().toISOString() };
   const index = state.snapshots.findIndex(x => x.month === month);
   if (index >= 0) state.snapshots[index] = item; else state.snapshots.push(item);
   state.snapshots = state.snapshots.sort((a, b) => a.month.localeCompare(b.month)).slice(-60);
@@ -562,6 +617,183 @@ function renderCharlieAdvice() {
   const items = charlieAdviceItems();
   $("charlieAdvice").innerHTML = items.map(x => `<div class="advice-item ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
 }
+function goalDashboardItem({ icon, title, current, target, remainingLabel, detail, tone = "accent", reverse = false }) {
+  const safeTarget = Math.max(0, num(target));
+  const safeCurrent = Math.max(0, num(current));
+  const rate = safeTarget ? Math.min(100, reverse ? (safeTarget - Math.min(safeTarget, safeCurrent)) / safeTarget * 100 : safeCurrent / safeTarget * 100) : 0;
+  const remaining = reverse ? safeCurrent : Math.max(0, safeTarget - safeCurrent);
+  return `<article class="card life-goal-card ${tone}"><div class="life-goal-head"><span class="life-goal-icon">${icon}</span><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail || "")}</small></div><b>${rate.toFixed(0)}%</b></div><div class="progress-track"><div class="progress-bar" style="width:${rate}%"></div></div><div class="life-goal-values"><span>${reverse ? `残高 ${yen(safeCurrent)}` : `${yen(safeCurrent)} / ${yen(safeTarget)}`}</span><strong>${escapeHtml(remainingLabel || (remaining ? `あと ${yen(remaining)}` : "達成！"))}</strong></div></article>`;
+}
+function renderLifeGoalDashboard() {
+  const wrap = $("lifeGoalDashboard"); if (!wrap) return;
+  const items = [];
+  const mx = mortgageMetrics();
+  if (mx.balance || mx.original) items.push(goalDashboardItem({ icon:"🏠", title:"住宅ローン", current:mx.balance, target:mx.original, reverse:true, remainingLabel:mx.balance ? `完済まで約${mx.years || "—"}年` : "完済！", detail:`返済済み ${yen(mx.paid)}`, tone:"mortgage" }));
+  const e = state.education;
+  [["長女",e.child1,e.target1],["次女",e.child2,e.target2],["三女",e.child3,e.target3]].forEach(([name,current,target])=>{ if(num(current)||num(target)) items.push(goalDashboardItem({icon:"🎓",title:`${name}の教育資金`,current,target,detail:target?`目標 ${yen(target)}`:"目標額を設定してください",tone:"education"})) });
+  state.savingsGoals.forEach(g=>{ const m=goalMetrics(g); if(m.current||m.target) items.push(goalDashboardItem({icon:({"車":"🚗","旅行":"🌴","住宅修繕":"🔧","教育":"🎓","家電":"🏠"}[g.category]||"🎯"),title:g.name,current:m.current,target:m.target,detail:g.deadline?`${g.deadline.replaceAll("-","/")}まで`:`毎月 ${yen(m.monthly)}`,tone:"saving"})) });
+  const financial=financialAssets(), assetTarget=num(state.assetGoal);
+  if(assetTarget) items.push(goalDashboardItem({icon:"💰",title:"総資産目標",current:financial,target:assetTarget,detail:`現在の金融資産 ${yen(financial)}`,tone:"asset"}));
+  wrap.innerHTML = items.length ? items.join("") : '<article class="card life-goal-empty">ライフ画面で住宅ローン・教育資金・積立目標を登録すると、ここに進捗グラフが並びます。</article>';
+}
+
+function futureSnapshotData() {
+  const rows = [];
+  const mx = mortgageMetrics();
+  if (mx.original > 0) rows.push({ icon:"🏠", title:"住宅ローン", rate:Math.min(100, mx.progress), current:mx.paid, target:mx.original, detail:`残高 ${yen(mx.balance)}`, status:`返済済み ${yen(mx.paid)}`, tone:"mortgage" });
+  const e = state.education;
+  const eduCurrent = num(e.child1)+num(e.child2)+num(e.child3);
+  const eduTarget = num(e.target1)+num(e.target2)+num(e.target3);
+  if (eduCurrent || eduTarget) rows.push({ icon:"🎓", title:"教育資金（3人合計）", rate:eduTarget?Math.min(100,eduCurrent/eduTarget*100):0, current:eduCurrent, target:eduTarget, detail:eduTarget?`目標 ${yen(eduTarget)}`:"目標額を設定", status:eduTarget?`あと ${yen(Math.max(0,eduTarget-eduCurrent))}`:"目標未設定", tone:"education" });
+  const goalCurrent = state.savingsGoals.reduce((sum,g)=>sum+num(g.current),0);
+  const goalTarget = state.savingsGoals.reduce((sum,g)=>sum+num(g.target),0);
+  if (goalCurrent || goalTarget) rows.push({ icon:"🎯", title:"目的別積立", rate:goalTarget?Math.min(100,goalCurrent/goalTarget*100):0, current:goalCurrent, target:goalTarget, detail:`${state.savingsGoals.length}件の目標`, status:goalTarget?`あと ${yen(Math.max(0,goalTarget-goalCurrent))}`:"目標未設定", tone:"saving" });
+  const financial = financialAssets(), assetTarget = num(state.assetGoal);
+  if (assetTarget) rows.push({ icon:"💰", title:"金融資産目標", rate:Math.min(100,financial/assetTarget*100), current:financial, target:assetTarget, detail:`現在 ${yen(financial)}`, status:financial>=assetTarget?"達成！":`あと ${yen(assetTarget-financial)}`, tone:"asset" });
+  const year=String(new Date().getFullYear());
+  const base=state.nisaUsage?.[year]||{};
+  const purchases=state.nisaPurchases.filter(x=>String(x.date||"").startsWith(year));
+  const used=["本人","夫"].reduce((sum,owner)=>sum+num(base?.[owner]?.tsumitate)+num(base?.[owner]?.growth),0)+purchases.reduce((sum,x)=>sum+num(x.amount),0);
+  const nisaTarget=7200000;
+  if(used) rows.push({icon:"N",title:`${year}年 NISA`,rate:Math.min(100,used/nisaTarget*100),current:used,target:nisaTarget,detail:"夫婦の年間枠",status:`残り ${yen(Math.max(0,nisaTarget-used))}`,tone:"nisa"});
+  return rows;
+}
+function renderFutureSnapshot() {
+  const wrap=$("futureSnapshotRows"); if(!wrap) return;
+  const rows=futureSnapshotData();
+  const overall=rows.length?rows.reduce((sum,x)=>sum+x.rate,0)/rows.length:0;
+  $("futureOverallRate").textContent=`${overall.toFixed(0)}%`;
+  $("futureRingValue").textContent=`${overall.toFixed(0)}%`;
+  $("futureOverallSub").textContent=rows.length?`${rows.length}項目の平均`:`目標を登録すると表示`;
+  const ring=$("futureOverallRing"); if(ring) ring.style.setProperty("--rate",`${overall*3.6}deg`);
+  wrap.innerHTML=rows.length?rows.map(x=>`<div class="future-row ${x.tone}"><span class="future-row-icon">${x.icon}</span><div class="future-row-main"><div class="future-row-title"><strong>${escapeHtml(x.title)}</strong><b>${x.rate.toFixed(0)}%</b></div><div class="future-row-track"><i style="width:${Math.max(0,Math.min(100,x.rate))}%"></i></div><div class="future-row-meta"><span>${escapeHtml(x.detail)}</span><strong>${escapeHtml(x.status)}</strong></div></div></div>`).join(""):'<p class="future-empty">ライフ画面で住宅ローン・教育資金・積立目標を登録すると、ここに進捗が表示されます。</p>';
+}
+function roadmapGoalRows() {
+  const rows = [];
+  const mx = mortgageMetrics();
+  if (mx.original > 0) rows.push({ key:"mortgage", title:"住宅ローン", rate:Math.min(100, mx.progress), remaining:mx.balance, deadline:num(state.mortgage.endYear) || null, detail:`残高 ${yen(mx.balance)}`, attention:false });
+  const e=state.education;
+  [["長女",e.child1,e.target1],["次女",e.child2,e.target2],["三女",e.child3,e.target3]].forEach(([name,current,target])=>{
+    current=num(current); target=num(target); if(!target) return;
+    const event=[...state.lifeEvents].filter(x=>x.person===name && Number(x.year)>=new Date().getFullYear()).sort((a,b)=>Number(a.year)-Number(b.year))[0];
+    rows.push({key:`edu-${name}`,title:`${name}の教育資金`,rate:Math.min(100,current/target*100),remaining:Math.max(0,target-current),deadline:event?Number(event.year):null,detail:`あと ${yen(Math.max(0,target-current))}`,attention:false});
+  });
+  state.savingsGoals.forEach(g=>{
+    const m=goalMetrics(g); if(!m.target) return;
+    const y=g.deadline?Number(String(g.deadline).slice(0,4)):null;
+    rows.push({key:`goal-${g.id}`,title:g.name,rate:m.rate,remaining:m.remaining,deadline:y,deadlineText:g.deadline||"",detail:`あと ${yen(m.remaining)}`,attention:Boolean(m.months>0 && m.monthly<m.neededMonthly),neededMonthly:m.neededMonthly,monthly:m.monthly});
+  });
+  const target=num(state.assetGoal), current=financialAssets();
+  if(target) rows.push({key:"asset",title:"総資産目標",rate:Math.min(100,current/target*100),remaining:Math.max(0,target-current),deadline:null,detail:`あと ${yen(Math.max(0,target-current))}`,attention:false});
+  return rows;
+}
+function renderLifeRoadmap() {
+  const rows=roadmapGoalRows();
+  const active=rows.filter(x=>x.rate<100);
+  const overall=rows.length ? rows.reduce((sum,x)=>sum+x.rate,0)/rows.length : 0;
+  $("roadmapOverallRate").textContent=`${overall.toFixed(0)}%`;
+  $("roadmapOverallSub").textContent=rows.length?`${rows.length}目標の平均`:`目標を登録すると表示`;
+  const closest=[...active].sort((a,b)=>b.rate-a.rate)[0] || [...rows].sort((a,b)=>b.rate-a.rate)[0];
+  $("roadmapClosestGoal").textContent=closest?closest.title:"—";
+  $("roadmapClosestSub").textContent=closest?`${closest.rate.toFixed(0)}%・${closest.detail}`:"—";
+  const dated=active.filter(x=>x.deadline).sort((a,b)=>a.deadline-b.deadline);
+  const next=dated[0];
+  $("roadmapNextDeadline").textContent=next?`${next.deadline}年`:"—";
+  $("roadmapNextDeadlineSub").textContent=next?next.title:"期限付き目標なし";
+  const attention=active.filter(x=>x.attention);
+  $("roadmapAttentionCount").textContent=`${attention.length}件`;
+  $("roadmapAttentionSub").textContent=attention.length?"積立ペースを確認":"順調です";
+  let focus=attention.sort((a,b)=>(b.neededMonthly-b.monthly)-(a.neededMonthly-a.monthly))[0];
+  if(!focus) focus=next || closest;
+  if(focus){
+    $("roadmapFocusTitle").textContent=focus.title;
+    $("roadmapFocusBadge").textContent=focus.attention?"要調整":`${focus.rate.toFixed(0)}%`;
+    $("roadmapFocusText").textContent=focus.attention?`目標日に間に合わせるには月${yen(focus.neededMonthly)}が目安です。現在より月${yen(Math.max(0,focus.neededMonthly-focus.monthly))}増やすと近づきます。`:`現在の進捗は${focus.rate.toFixed(1)}%。${focus.detail}${focus.deadline?`、目安は${focus.deadline}年です。`:"です。"}`;
+  } else {
+    $("roadmapFocusTitle").textContent="目標を登録してください"; $("roadmapFocusBadge").textContent="—"; $("roadmapFocusText").textContent="ライフ画面で期限と毎月積立を設定すると、優先度を自動判定します。";
+  }
+  const year=new Date().getFullYear();
+  const events=[];
+  state.lifeEvents.filter(e=>Number(e.year)>=year).forEach(e=>events.push({year:Number(e.year),title:`${e.person}・${e.title}`,sub:num(e.cost)?`予定費用 ${yen(e.cost)}`:"ライフイベント",type:"event"}));
+  state.savingsGoals.filter(g=>g.deadline).forEach(g=>events.push({year:Number(String(g.deadline).slice(0,4)),title:g.name,sub:`目標 ${yen(g.target)}`,type:"goal"}));
+  if(num(state.mortgage.endYear)>=year) events.push({year:num(state.mortgage.endYear),title:"住宅ローン完済予定",sub:`現在残高 ${yen(state.mortgage.balance)}`,type:"mortgage"});
+  const timeline=events.filter(x=>x.year>=year).sort((a,b)=>a.year-b.year).slice(0,6);
+  $("roadmapTimeline").innerHTML=timeline.length?timeline.map((x,i)=>`<div class="roadmap-timeline-item ${x.type}"><div class="roadmap-year">${x.year}</div><div class="roadmap-dot"></div><div class="roadmap-event"><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.sub)}</small></div></div>`).join(""):'<div class="empty">ライフイベントや目標日を登録すると、ここに時系列で表示されます。</div>';
+}
+
+function lifeTimelineProjection() {
+  const currentYear = new Date().getFullYear();
+  const mx = mortgageMetrics();
+  const annualInvest = state.plans.reduce((sum,p)=>sum+(p.method === "lump" ? 0 : num(p.monthly))*12,0);
+  const annualEducation = num(state.education.monthly) * 12;
+  const annualGoals = state.savingsGoals.reduce((sum,g)=>sum+num(g.monthly)*12,0);
+  const annualSaving = annualInvest + annualEducation + annualGoals;
+  const currentFinancial = financialAssets();
+  const years = new Set([currentYear]);
+  state.lifeEvents.forEach(e=>{ const y=Number(e.year); if(y>=currentYear) years.add(y); });
+  state.savingsGoals.forEach(g=>{ const y=Number(String(g.deadline||"").slice(0,4)); if(y>=currentYear) years.add(y); });
+  if(num(state.mortgage.endYear)>=currentYear) years.add(num(state.mortgage.endYear));
+  [currentYear+1,currentYear+3,currentYear+5,currentYear+10].forEach(y=>years.add(y));
+  const mortgageAt = year => {
+    if(!mx.balance) return 0;
+    const points=mx.projection.points||[];
+    const exact=points.find(p=>p.year===year); if(exact) return exact.balance;
+    const before=[...points].filter(p=>p.year<year).sort((x,y)=>y.year-x.year)[0];
+    const after=[...points].filter(p=>p.year>year).sort((x,y)=>x.year-y.year)[0];
+    if(before&&after){ const ratio=(year-before.year)/(after.year-before.year); return Math.max(0,before.balance+(after.balance-before.balance)*ratio); }
+    if(before && !after) return before.balance;
+    return mx.balance;
+  };
+  const sorted=[...years].filter(y=>y>=currentYear).sort((a,b)=>a-b).slice(0,14);
+  return sorted.map(year=>{
+    const events=[];
+    state.lifeEvents.filter(e=>Number(e.year)===year).forEach(e=>events.push({icon:"🎓",title:`${e.person}・${e.title}`,sub:num(e.cost)?`予定費用 ${yen(e.cost)}`:"登録済みライフイベント"}));
+    state.savingsGoals.filter(g=>Number(String(g.deadline||"").slice(0,4))===year).forEach(g=>events.push({icon:({"車":"🚗","旅行":"🌴","住宅修繕":"🔧","教育":"🎓"}[g.category]||"🎯"),title:g.name,sub:`目標 ${yen(g.target)}`}));
+    if(num(state.mortgage.endYear)===year) events.push({icon:"🏠",title:"住宅ローン完済予定",sub:"登録された完済予定年"});
+    if(year===currentYear) events.unshift({icon:"●",title:"現在",sub:`金融資産 ${yen(currentFinancial)}`});
+    const yearsAhead=year-currentYear;
+    return {year,events,financial:currentFinancial+annualSaving*yearsAhead,mortgage:mortgageAt(year),yearsAhead};
+  });
+}
+function renderLifePlanTimeline() {
+  const wrap=$("lifePlanTimeline"); if(!wrap) return;
+  const rows=lifeTimelineProjection();
+  const currentYear=new Date().getFullYear();
+  const next=rows.flatMap(r=>r.events.map(e=>({...e,year:r.year}))).filter(e=>e.year>currentYear).sort((a,b)=>a.year-b.year)[0];
+  const y10=rows.find(r=>r.year===currentYear+10) || rows[rows.length-1];
+  $("lifeTimelineNext").textContent=next?`${next.year}年`:`—`;
+  $("lifeTimelineNextSub").textContent=next?next.title:"予定を登録すると表示";
+  $("lifeTimelineAsset10").textContent=y10?yen(y10.financial):"—";
+  $("lifeTimelineAsset10Sub").textContent=y10?`${y10.year}年・運用益を含めない単純積立`:`—`;
+  $("lifeTimelineLoan10").textContent=y10?yen(y10.mortgage):"—";
+  $("lifeTimelineLoan10Sub").textContent=y10?`${y10.year}年の概算残高`:`—`;
+  wrap.innerHTML=rows.map(r=>`<div class="life-plan-year ${r.year===currentYear?"current":""}">
+    <div class="life-plan-year-label"><strong>${r.year}</strong><small>${r.year===currentYear?"いま":`${r.yearsAhead}年後`}</small></div>
+    <div class="life-plan-axis"><i></i></div>
+    <div class="life-plan-content">
+      <div class="life-plan-money"><span>金融資産見込み <b>${yen(r.financial)}</b></span><span>ローン残高 <b>${yen(r.mortgage)}</b></span></div>
+      ${r.events.length?r.events.map(e=>`<article class="life-plan-event"><span>${e.icon}</span><div><strong>${escapeHtml(e.title)}</strong><small>${escapeHtml(e.sub)}</small></div></article>`).join(""):`<p class="life-plan-empty">この年の登録イベントはありません</p>`}
+    </div>
+  </div>`).join("");
+}
+
+function drawMortgageBalanceChart() {
+  const canvas=$("mortgageBalanceChart"); if(!canvas) return;
+  const ctx=canvas.getContext("2d"), dpr=window.devicePixelRatio||1, w=canvas.clientWidth||640, h=280;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const x=mortgageMetrics(), data=x.projection.points;
+  const styles=getComputedStyle(document.body), muted=styles.getPropertyValue("--muted").trim(), line=styles.getPropertyValue("--line").trim(), accent=styles.getPropertyValue("--accent").trim(), text=styles.getPropertyValue("--text").trim();
+  if(!x.balance || data.length<2){ ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="13px sans-serif";ctx.fillText("ローン残高と返済額を入力すると予測を表示します",w/2,h/2);$("mortgageChartBadge").textContent="未設定";$("mortgageChartSub").textContent="住宅ローンを入力すると表示されます";return; }
+  const max=Math.max(...data.map(d=>d.balance),1), pad={left:58,right:16,top:22,bottom:40};
+  const px=i=>pad.left+(data.length===1?0:i*(w-pad.left-pad.right)/(data.length-1));
+  const py=v=>pad.top+(max-v)/max*(h-pad.top-pad.bottom);
+  ctx.strokeStyle=line;ctx.lineWidth=1;ctx.font="10px sans-serif";ctx.fillStyle=muted;ctx.textAlign="right";
+  for(let i=0;i<=4;i++){const yy=pad.top+i*(h-pad.top-pad.bottom)/4,val=max-i*max/4;ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(w-pad.right,yy);ctx.stroke();ctx.fillText(`${Math.round(val/10000)}万`,pad.left-7,yy+3)}
+  ctx.beginPath();data.forEach((d,i)=>i?ctx.lineTo(px(i),py(d.balance)):ctx.moveTo(px(i),py(d.balance)));ctx.strokeStyle=accent;ctx.lineWidth=4;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
+  const labelEvery=Math.max(1,Math.ceil(data.length/6));data.forEach((d,i)=>{ctx.beginPath();ctx.arc(px(i),py(d.balance),i===data.length-1?5:3,0,Math.PI*2);ctx.fillStyle=accent;ctx.fill();if(i%labelEvery===0||i===data.length-1){ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="10px sans-serif";ctx.fillText(String(d.year),px(i),h-15)}});
+  const end=x.projection.projectedEnd;$("mortgageChartBadge").textContent=end?`${end}年 完済見込み`:"要確認";$("mortgageChartSub").textContent=`現在 ${yen(x.balance)} → ${end?`${end}年に¥0見込み`:"返済額では完済時期を算出できません"}`;$("mortgageChartNote").textContent=`金利${num(state.mortgage.rate).toFixed(2)}%、毎月返済とボーナス返済を月割りして概算。実際の返済予定表とは差が出る場合があります。`;
+  ctx.fillStyle=text;ctx.textAlign="left";ctx.font="700 11px sans-serif";ctx.fillText(yen(data[0].balance),pad.left,pad.top-7);
+}
 function renderHome() {
   recordSnapshot();
   const inv = investmentTotals(), budget = budgetTotals();
@@ -590,6 +822,10 @@ function renderHome() {
   $("goalAmount").textContent = yen(goal);
   $("goalRemaining").textContent = financial >= goal ? "目標達成！" : `あと ${yen(Math.max(0, goal - financial))}`;
   $("goalProgress").style.width = `${rate}%`;
+  renderFutureSnapshot(); renderLifeGoalDashboard();
+  renderLifeRoadmap();
+  renderLifePlanTimeline();
+  drawMortgageBalanceChart();
 
   drawAllocation();
   drawTrend();
@@ -669,6 +905,55 @@ function drawTrend() {
   ctx.fillText(yen(values[values.length - 1]), x(values.length - 1), Math.max(12, y(values[values.length - 1]) - 10));
   $("trendNote").textContent = data.length < 2 ? "今月分を記録しました。来月以降、推移が線でつながります。" : `直近${data.length}か月の純資産推移です。`;
 }
+
+function historyValue(item, key) {
+  if (item && item[key] != null) return num(item[key]);
+  if (key === "investment") return Math.max(0, num(item?.financial) - num(state.cash) - educationTotal());
+  if (key === "annualDividend") return 0;
+  return num(item?.[key]);
+}
+function drawHistoryLine(canvasId, series, labels, options = {}) {
+  const canvas = $(canvasId); if (!canvas) return;
+  const ctx = canvas.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 640, h = options.height || 260;
+  canvas.width = w*dpr; canvas.height = h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const all = series.flatMap(s=>s.values).filter(Number.isFinite);
+  if (!all.length) return;
+  let min = Math.min(...all), max = Math.max(...all);
+  if (options.zeroBase) min = 0;
+  if (min===max) { max += Math.max(1000,Math.abs(max)*.1); min = options.zeroBase ? 0 : min-Math.max(1000,Math.abs(min)*.1); }
+  const pad={left:58,right:16,top:20,bottom:38}, range=max-min||1;
+  const x=i=>pad.left+(labels.length===1?(w-pad.left-pad.right)/2:i*(w-pad.left-pad.right)/(labels.length-1));
+  const y=v=>pad.top+(max-v)/range*(h-pad.top-pad.bottom);
+  const styles=getComputedStyle(document.body), grid=styles.getPropertyValue("--line").trim(), muted=styles.getPropertyValue("--muted").trim();
+  ctx.font="10px sans-serif"; ctx.fillStyle=muted; ctx.textAlign="right"; ctx.strokeStyle=grid; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const yy=pad.top+i*(h-pad.top-pad.bottom)/4,val=max-i*range/4;ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(w-pad.right,yy);ctx.stroke();ctx.fillText(`${Math.round(val/10000)}万`,pad.left-7,yy+3)}
+  series.forEach((s,si)=>{ctx.beginPath();s.values.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));ctx.strokeStyle=s.color;ctx.lineWidth=3;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();s.values.forEach((v,i)=>{ctx.beginPath();ctx.arc(x(i),y(v),3.5,0,Math.PI*2);ctx.fillStyle=s.color;ctx.fill()})});
+  labels.forEach((lab,i)=>{ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="10px sans-serif";ctx.fillText(lab.slice(5)+"月",x(i),h-14)});
+}
+function renderHistoryDashboard() {
+  if (!$('wealthHistoryChart')) return;
+  const data=[...state.snapshots].sort((a,b)=>String(a.month).localeCompare(String(b.month))).slice(-12);
+  const inv=investmentTotals(), financial=financialAssets(), annual=inv.dividend;
+  const prev=data.length>1?data[data.length-2]:null;
+  const current=data[data.length-1]||null;
+  const signed=(v)=>v==null?'前月比 —':`前月比 ${v>=0?'+':''}${yen(v)}`;
+  $('historyFinancialNow').textContent=yen(financial);
+  $('historyInvestmentNow').textContent=yen(inv.market);
+  $('historyDividendNow').textContent=yen(annual);
+  $('historyFinancialChange').textContent=signed(prev?financial-num(prev.financial):null);
+  $('historyInvestmentChange').textContent=signed(prev?inv.market-historyValue(prev,'investment'):null);
+  $('historyDividendChange').textContent=signed(prev?annual-historyValue(prev,'annualDividend'):null);
+  const highest=data.reduce((best,x)=>!best||num(x.financial)>num(best.financial)?x:best,null);
+  $('historyHighest').textContent=yen(highest?highest.financial:financial);
+  $('historyHighestMonth').textContent=highest?`${highest.month.replace('-','年')}月時点`:'今月時点';
+  const labels=data.map(x=>x.month);
+  const styles=getComputedStyle(document.body);
+  drawHistoryLine('wealthHistoryChart',[{values:data.map(x=>num(x.financial)),color:styles.getPropertyValue('--accent').trim()},{values:data.map(x=>historyValue(x,'investment')),color:'#4f9478'}],labels,{height:280});
+  drawHistoryLine('dividendHistoryChart',[{values:data.map(x=>historyValue(x,'annualDividend')),color:'#c24c9a'}],labels,{height:240,zeroBase:true});
+  $('historyNote').textContent=data.length<2?'今月分を記録しました。来月以降、推移がつながります。':`直近${data.length}か月の資産・配当予想を記録しています。`;
+}
+
 function setupMonthOptions() {
   const previous = $("txMonth").value;
   const months = new Set(state.transactions.map(t => monthKey(t.date)));
@@ -1080,18 +1365,85 @@ function renderPlans() {
     return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions">${nisaButton}<button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">積立・NISA商品はまだありません。</div>`;
 }
-function renderDividendCalendar() {
-  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [] }));
+function currentDividendYear() { return new Date().getFullYear(); }
+function visibleDividendReceipts(year = currentDividendYear()) {
+  return state.dividendReceipts.filter(item => {
+    const itemYear = Number(String(item.date || "").slice(0, 4));
+    return itemYear === year && (currentOwner === "家族合計" || normalizeOwner(item.owner) === currentOwner);
+  });
+}
+function dividendSchedule() {
+  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [], items: [] }));
   for (const a of visibleAssets()) {
     const dividend = num(a.dividend), ms = parseDividendMonths(a.dividendMonths);
-    if (!ms.length) continue;
-    for (const m of ms) { months[m - 1].amount += dividend / ms.length; months[m - 1].names.push(a.name); }
+    if (!dividend || !ms.length) continue;
+    const perMonth = dividend / ms.length;
+    for (const m of ms) {
+      months[m - 1].amount += perMonth;
+      months[m - 1].names.push(a.name);
+      months[m - 1].items.push({ name: a.name, amount: perMonth });
+    }
   }
-  const annual = months.reduce((s,m)=>s+m.amount,0), currentMonth = new Date().getMonth()+1;
+  return months;
+}
+function renderDividendAssetOptions() {
+  const select = $("dividendReceiptAsset");
+  if (!select) return;
+  const current = select.value;
+  const list = visibleAssets().filter(a => num(a.dividend) > 0).sort((a,b)=>String(a.name).localeCompare(String(b.name),"ja"));
+  select.innerHTML = '<option value="">銘柄を選択</option>' + list.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}${currentOwner === "家族合計" ? `（${escapeHtml(a.owner)}）` : ""}</option>`).join("");
+  if ([...select.options].some(o => o.value === current)) select.value = current;
+}
+function clearDividendReceiptForm() {
+  if (!$("dividendReceiptId")) return;
+  $("dividendReceiptId").value = "";
+  $("dividendReceiptDate").value = today();
+  $("dividendReceiptAsset").value = "";
+  $("dividendReceiptAmount").value = "";
+  $("dividendReceiptMemo").value = "";
+  $("saveDividendReceiptButton").textContent = "受取を記録";
+  $("cancelDividendReceiptEdit").classList.add("hidden");
+}
+function renderDividendCalendar() {
+  if (!$("dividendAnnualView")) return;
+  const months = dividendSchedule();
+  const year = currentDividendYear();
+  const receipts = visibleDividendReceipts(year);
+  const annual = months.reduce((s,m)=>s+m.amount,0);
+  const received = receipts.reduce((s,item)=>s+num(item.amount),0);
+  const remaining = Math.max(0, annual - received);
+  const currentMonth = new Date().getMonth()+1;
   const upcoming = [...months.slice(currentMonth-1), ...months.slice(0,currentMonth-1)].find(m=>m.amount>0);
+  const maxMonth = Math.max(1, ...months.map(m=>m.amount));
+
   $("dividendAnnualView").textContent = yen(annual);
+  $("dividendReceivedView").textContent = yen(received);
+  $("dividendRemainingView").textContent = yen(remaining);
+  $("dividendReceiptCountView").textContent = `${receipts.length}件を記録`;
   $("dividendNextView").textContent = upcoming ? `${upcoming.month}月 ${yen(upcoming.amount)}` : "未設定";
+  $("dividendNextNamesView").textContent = upcoming ? [...new Set(upcoming.names)].join("・") : "配当月を登録してください";
+  $("dividendReceiptYearLabel").textContent = `${year}年`;
+
+  const notice = $("dividendNoticeCard");
+  if (!annual) {
+    notice.className = "card dividend-notice-card neutral";
+    notice.innerHTML = '<strong>配当予定はまだありません</strong><p>保有資産の編集から、年間配当と配当月を登録すると表示されます。</p>';
+  } else if (upcoming && upcoming.month === currentMonth) {
+    notice.className = "card dividend-notice-card now";
+    notice.innerHTML = `<strong>今月は配当予定があります</strong><p>${escapeHtml([...new Set(upcoming.names)].join("・"))}　予定 ${yen(upcoming.amount)}</p>`;
+  } else if (upcoming) {
+    notice.className = "card dividend-notice-card upcoming";
+    notice.innerHTML = `<strong>次は${upcoming.month}月の配当予定</strong><p>${escapeHtml([...new Set(upcoming.names)].join("・"))}　予定 ${yen(upcoming.amount)}</p>`;
+  } else {
+    notice.className = "card dividend-notice-card neutral";
+    notice.innerHTML = '<strong>配当月を確認してください</strong><p>年間配当が登録されていても、配当月がない商品はカレンダーに入りません。</p>';
+  }
+
   $("dividendCalendar").innerHTML = months.map(m => `<div class="month-cell ${m.amount ? 'has-dividend' : ''}"><span>${m.month}月</span><strong>${yen(m.amount)}</strong><small>${escapeHtml([...new Set(m.names)].join("・"))}</small></div>`).join("");
+  $("dividendMonthlyBars").innerHTML = months.map(m => `<div class="dividend-bar-row"><span>${m.month}月</span><div class="dividend-bar-track"><div style="width:${m.amount/maxMonth*100}%"></div></div><strong>${yen(m.amount)}</strong></div>`).join("");
+
+  renderDividendAssetOptions();
+  $("dividendReceiptList").innerHTML = receipts.length ? [...receipts].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(item => `<article class="item-card dividend-receipt-card"><div class="item-head"><div><div class="item-title">${escapeHtml(item.name || "配当金")}</div><div class="item-sub">${escapeHtml(item.owner)}・${escapeHtml(item.date || "—")}${item.memo ? `・${escapeHtml(item.memo)}` : ""}</div></div><div class="item-value positive">${yen(item.amount)}</div></div><div class="item-actions"><button class="edit-button" data-edit-dividend-receipt="${item.id}">編集</button><button class="delete-button" data-delete-dividend-receipt="${item.id}">削除</button></div></article>`).join("") : '<div class="empty">今年受け取った配当金を記録すると、受取済みと残り予定が分かります。</div>';
 }
 function setInvestmentView(view) {
   currentInvestmentView = view;
@@ -1109,14 +1461,43 @@ function clearEventForm() {
   $("eventId").value = ""; $("eventYear").value = ""; $("eventTitle").value = ""; $("eventCost").value = ""; $("eventPerson").value = "家族";
   $("saveEventButton").textContent = "予定を追加"; $("cancelEventEdit").classList.add("hidden");
 }
+function mortgageFormValues() {
+  const balance = num($("mortgageBalance")?.value);
+  const originalInput = num($("mortgageOriginalBalance")?.value);
+  return {
+    originalBalance: Math.max(originalInput, balance),
+    balance,
+    rate: num($("mortgageRate")?.value),
+    monthly: num($("mortgageMonthly")?.value),
+    bonusAnnual: num($("mortgageBonus")?.value),
+    endYear: Number($("mortgageEndYear")?.value) || 0,
+    extra: num($("mortgageExtra")?.value)
+  };
+}
+function previewMortgageProgressFromForm() {
+  if (!$("mortgageOriginalBalance") || !$("mortgageBalance")) return;
+  const original = num($("mortgageOriginalBalance").value);
+  const balance = num($("mortgageBalance").value);
+  const paid = original > 0 ? Math.max(0, original - balance) : 0;
+  const progress = original > 0 ? Math.min(100, paid / original * 100) : 0;
+  $("mortgagePaidSummary").textContent = `${yen(paid)}返済済み`;
+  $("mortgageProgressRate").textContent = `${progress.toFixed(1)}%`;
+  $("mortgageProgressBar").style.width = `${progress}%`;
+  $("mortgageProgressCaption").textContent = original > 0
+    ? `借入時 ${yen(original)} → 現在 ${yen(balance)}。あと ${yen(balance)}です。`
+    : "借入時の金額を入力すると進捗が分かります。";
+}
+
 function renderMortgage() {
   const m = state.mortgage, x = mortgageMetrics();
-  $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
+  $("mortgageOriginalBalance").value = m.originalBalance || ""; $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
   $("mortgageBonus").value = m.bonusAnnual || ""; $("mortgageEndYear").value = m.endYear || ""; $("mortgageExtra").value = m.extra || "";
   $("mortgageAnnualSummary").textContent = yen(x.annual);
   $("mortgageYearsSummary").textContent = x.years ? `約${x.years}年` : "—";
   $("mortgageInterestSummary").textContent = yen(x.roughInterest);
   $("mortgageAfterExtraSummary").textContent = yen(x.afterExtra);
+  $("mortgagePaidSummary").textContent = `${yen(x.paid)}返済済み`; $("mortgageProgressRate").textContent = `${x.progress.toFixed(1)}%`; $("mortgageProgressBar").style.width = `${x.progress}%`;
+  $("mortgageProgressCaption").textContent = x.original ? `借入時 ${yen(x.original)} → 現在 ${yen(x.balance)}。あと ${yen(x.balance)}です。` : "借入時の金額を入力すると進捗が分かります。";
 }
 function educationProgressCard(name, current, target) {
   const rate = target ? Math.min(100, current / target * 100) : 0;
@@ -1149,7 +1530,7 @@ function clearGoalForm() {
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
+  renderGreeting(); renderTheme(); renderHome(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
@@ -1258,9 +1639,54 @@ $("saveNisaPurchaseButton").addEventListener("click", () => {
   if (id) state.nisaPurchases = state.nisaPurchases.map(item => item.id === id ? data : item); else state.nisaPurchases.push(data);
   saveState(); clearNisaPurchaseForm(); renderAll();
 });
+$("saveDividendReceiptButton").addEventListener("click", () => {
+  const amount = num($("dividendReceiptAmount").value);
+  const assetId = $("dividendReceiptAsset").value;
+  const asset = state.assets.find(a => a.id === assetId);
+  if (!asset) return alert("銘柄を選んでください");
+  if (!amount) return alert("受取額を入力してください");
+  const id = $("dividendReceiptId").value;
+  const data = {
+    id: id || uid(),
+    owner: normalizeOwner(asset.owner),
+    assetId: asset.id,
+    name: asset.name,
+    date: $("dividendReceiptDate").value || today(),
+    amount,
+    memo: $("dividendReceiptMemo").value.trim()
+  };
+  if (id) state.dividendReceipts = state.dividendReceipts.map(item => item.id === id ? data : item); else state.dividendReceipts.push(data);
+  saveState(); clearDividendReceiptForm(); renderDividendCalendar();
+});
+$("cancelDividendReceiptEdit").addEventListener("click", clearDividendReceiptForm);
+$("showYieldRankingButton").addEventListener("click", () => {
+  currentRanking = "yield";
+  document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x.dataset.ranking === "yield"));
+  setInvestmentView("ranking");
+  renderRanking();
+});
 $("cancelNisaPurchaseEdit").addEventListener("click", clearNisaPurchaseForm);
 document.addEventListener("click", e => {
   const d = e.target.dataset;
+  if (d.deleteDividendReceipt && confirm("この配当受取記録を削除しますか？")) {
+    state.dividendReceipts = state.dividendReceipts.filter(item => item.id !== d.deleteDividendReceipt);
+    saveState(); clearDividendReceiptForm(); renderDividendCalendar();
+  }
+  if (d.editDividendReceipt) {
+    const item = state.dividendReceipts.find(x => x.id === d.editDividendReceipt);
+    if (item) {
+      $("dividendReceiptId").value = item.id;
+      renderDividendAssetOptions();
+      $("dividendReceiptAsset").value = item.assetId || "";
+      $("dividendReceiptDate").value = item.date || today();
+      $("dividendReceiptAmount").value = item.amount || "";
+      $("dividendReceiptMemo").value = item.memo || "";
+      $("saveDividendReceiptButton").textContent = "変更を保存";
+      $("cancelDividendReceiptEdit").classList.remove("hidden");
+      $("dividendReceiptEditor").open = true;
+      $("dividendReceiptFormWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
   if (d.confirmDuplicate) {
     const message = "この登録は別々の買付・契約として正しいですか？\n確認後は、同じ組み合わせを今後の点検で警告しません。";
     if (confirm(message) && !state.confirmedDuplicateGroups.includes(d.confirmDuplicate)) {
@@ -1399,16 +1825,21 @@ $("saveNisaUsageButton").addEventListener("click", () => {
 });
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
+  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); clearDividendReceiptForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
 }));
 document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
   currentRanking = b.dataset.ranking; document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x === b)); renderRanking();
 }));
+document.querySelectorAll(".future-jump").forEach(button => button.addEventListener("click", () => {
+  const target=button.dataset.targetScreen;
+  const navButton=document.querySelector(`.nav-button[data-screen="${target}"]`);
+  if(navButton) navButton.click();
+}));
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
-  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); }, 50);
+  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); renderHistoryDashboard(); }, 50);
   if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
   if (b.dataset.screen === "budgetScreen") setTimeout(() => drawBudgetTrend(selectedBudgetMonth()), 50);
 }));
@@ -1427,8 +1858,24 @@ $("saveEventButton").addEventListener("click", () => {
 });
 $("cancelEventEdit").addEventListener("click", clearEventForm);
 $("saveMortgageButton").addEventListener("click", () => {
-  state.mortgage = { balance: num($("mortgageBalance").value), rate: num($("mortgageRate").value), monthly: num($("mortgageMonthly").value), bonusAnnual: num($("mortgageBonus").value), endYear: Number($("mortgageEndYear").value) || 0, extra: num($("mortgageExtra").value) };
-  state.loan = state.mortgage.balance; saveState(); renderAll(); alert("住宅ローンを保存しました");
+  const values = mortgageFormValues();
+  if (!values.originalBalance) return alert("借入時の金額を入力してください");
+  if (!values.balance) return alert("現在のローン残高を入力してください");
+  state.mortgage = { ...state.mortgage, ...values };
+  state.loan = values.balance;
+  // まず通常保存へ同期的に書き込み、その後に予備保存・画面更新を行う。
+  state._savedAt = new Date().toISOString();
+  try { writeLocalCopies(state); } catch (error) { console.warn("住宅ローンの通常保存に失敗しました", error); }
+  saveState();
+  renderMortgage();
+  renderHome();
+  $("loanInput").value = state.loan || "";
+  alert(`住宅ローンを保存しました
+返済済み ${yen(Math.max(0, values.originalBalance - values.balance))}`);
+});
+["mortgageOriginalBalance", "mortgageBalance"].forEach(id => {
+  $(id)?.addEventListener("input", previewMortgageProgressFromForm);
+  $(id)?.addEventListener("change", previewMortgageProgressFromForm);
 });
 $("saveGoalButton").addEventListener("click", () => {
   const name = $("goalName").value.trim(), target = num($("goalTarget").value);
@@ -1443,12 +1890,13 @@ $("saveEducation").addEventListener("click", () => {
   saveState(); renderAll(); alert("教育資金を保存しました");
 });
 $("saveBaseButton").addEventListener("click", () => {
-  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
+  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
-$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
+$("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta8-duplicate-confirm", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta15-life-plan-timeline", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -1461,7 +1909,7 @@ $("resetButton").addEventListener("click", () => {
   if (!confirm("すべての入力データを削除します。よろしいですか？")) return;
   state = clone(defaultState); saveState(); renderAll();
 });
-window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
+window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); renderHistoryDashboard(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
 $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
 $("planMethod").addEventListener("change", syncPlanMethodUI);
