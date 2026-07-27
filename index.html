@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第14弾 ホームダッシュボード版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第15弾 ライフプランタイムライン版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第14弾・ホームダッシュボード版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第15弾・ライフプランタイムライン版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -90,6 +90,18 @@
       <article class="card roadmap-timeline-card">
         <div class="roadmap-timeline-head"><div><strong>家族の予定タイムライン</strong><small>近い予定から6件</small></div></div>
         <div id="roadmapTimeline" class="roadmap-timeline"></div>
+      </article>
+
+
+      <div class="section-heading life-plan-heading"><div><p>FUTURE TIMELINE</p><h2>サカイ家の未来年表</h2></div><span class="life-plan-chip">資産・ローン・家族の予定</span></div>
+      <div class="life-plan-summary-grid">
+        <article class="card life-plan-summary"><span>次の節目</span><strong id="lifeTimelineNext">—</strong><small id="lifeTimelineNextSub">予定を登録すると表示</small></article>
+        <article class="card life-plan-summary"><span>10年後の金融資産見込み</span><strong id="lifeTimelineAsset10">—</strong><small id="lifeTimelineAsset10Sub">運用益を含めない単純積立</small></article>
+        <article class="card life-plan-summary"><span>10年後のローン残高</span><strong id="lifeTimelineLoan10">—</strong><small id="lifeTimelineLoan10Sub">現在条件での概算</small></article>
+      </div>
+      <article class="card life-plan-card">
+        <div class="life-plan-note">登録済みのライフイベント・積立目標・住宅ローンを1本の年表にまとめています。金融資産見込みは、現在額に毎月積立を足した単純計算で、運用益や生活費の増減は含みません。</div>
+        <div id="lifePlanTimeline" class="life-plan-timeline"></div>
       </article>
 
       <h2>住宅ローン残高の見通し</h2>

@@ -720,6 +720,63 @@ function renderLifeRoadmap() {
   const timeline=events.filter(x=>x.year>=year).sort((a,b)=>a.year-b.year).slice(0,6);
   $("roadmapTimeline").innerHTML=timeline.length?timeline.map((x,i)=>`<div class="roadmap-timeline-item ${x.type}"><div class="roadmap-year">${x.year}</div><div class="roadmap-dot"></div><div class="roadmap-event"><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.sub)}</small></div></div>`).join(""):'<div class="empty">ライフイベントや目標日を登録すると、ここに時系列で表示されます。</div>';
 }
+
+function lifeTimelineProjection() {
+  const currentYear = new Date().getFullYear();
+  const mx = mortgageMetrics();
+  const annualInvest = state.plans.reduce((sum,p)=>sum+(p.method === "lump" ? 0 : num(p.monthly))*12,0);
+  const annualEducation = num(state.education.monthly) * 12;
+  const annualGoals = state.savingsGoals.reduce((sum,g)=>sum+num(g.monthly)*12,0);
+  const annualSaving = annualInvest + annualEducation + annualGoals;
+  const currentFinancial = financialAssets();
+  const years = new Set([currentYear]);
+  state.lifeEvents.forEach(e=>{ const y=Number(e.year); if(y>=currentYear) years.add(y); });
+  state.savingsGoals.forEach(g=>{ const y=Number(String(g.deadline||"").slice(0,4)); if(y>=currentYear) years.add(y); });
+  if(num(state.mortgage.endYear)>=currentYear) years.add(num(state.mortgage.endYear));
+  [currentYear+1,currentYear+3,currentYear+5,currentYear+10].forEach(y=>years.add(y));
+  const mortgageAt = year => {
+    if(!mx.balance) return 0;
+    const points=mx.projection.points||[];
+    const exact=points.find(p=>p.year===year); if(exact) return exact.balance;
+    const before=[...points].filter(p=>p.year<year).sort((x,y)=>y.year-x.year)[0];
+    const after=[...points].filter(p=>p.year>year).sort((x,y)=>x.year-y.year)[0];
+    if(before&&after){ const ratio=(year-before.year)/(after.year-before.year); return Math.max(0,before.balance+(after.balance-before.balance)*ratio); }
+    if(before && !after) return before.balance;
+    return mx.balance;
+  };
+  const sorted=[...years].filter(y=>y>=currentYear).sort((a,b)=>a-b).slice(0,14);
+  return sorted.map(year=>{
+    const events=[];
+    state.lifeEvents.filter(e=>Number(e.year)===year).forEach(e=>events.push({icon:"🎓",title:`${e.person}・${e.title}`,sub:num(e.cost)?`予定費用 ${yen(e.cost)}`:"登録済みライフイベント"}));
+    state.savingsGoals.filter(g=>Number(String(g.deadline||"").slice(0,4))===year).forEach(g=>events.push({icon:({"車":"🚗","旅行":"🌴","住宅修繕":"🔧","教育":"🎓"}[g.category]||"🎯"),title:g.name,sub:`目標 ${yen(g.target)}`}));
+    if(num(state.mortgage.endYear)===year) events.push({icon:"🏠",title:"住宅ローン完済予定",sub:"登録された完済予定年"});
+    if(year===currentYear) events.unshift({icon:"●",title:"現在",sub:`金融資産 ${yen(currentFinancial)}`});
+    const yearsAhead=year-currentYear;
+    return {year,events,financial:currentFinancial+annualSaving*yearsAhead,mortgage:mortgageAt(year),yearsAhead};
+  });
+}
+function renderLifePlanTimeline() {
+  const wrap=$("lifePlanTimeline"); if(!wrap) return;
+  const rows=lifeTimelineProjection();
+  const currentYear=new Date().getFullYear();
+  const next=rows.flatMap(r=>r.events.map(e=>({...e,year:r.year}))).filter(e=>e.year>currentYear).sort((a,b)=>a.year-b.year)[0];
+  const y10=rows.find(r=>r.year===currentYear+10) || rows[rows.length-1];
+  $("lifeTimelineNext").textContent=next?`${next.year}年`:`—`;
+  $("lifeTimelineNextSub").textContent=next?next.title:"予定を登録すると表示";
+  $("lifeTimelineAsset10").textContent=y10?yen(y10.financial):"—";
+  $("lifeTimelineAsset10Sub").textContent=y10?`${y10.year}年・運用益を含めない単純積立`:`—`;
+  $("lifeTimelineLoan10").textContent=y10?yen(y10.mortgage):"—";
+  $("lifeTimelineLoan10Sub").textContent=y10?`${y10.year}年の概算残高`:`—`;
+  wrap.innerHTML=rows.map(r=>`<div class="life-plan-year ${r.year===currentYear?"current":""}">
+    <div class="life-plan-year-label"><strong>${r.year}</strong><small>${r.year===currentYear?"いま":`${r.yearsAhead}年後`}</small></div>
+    <div class="life-plan-axis"><i></i></div>
+    <div class="life-plan-content">
+      <div class="life-plan-money"><span>金融資産見込み <b>${yen(r.financial)}</b></span><span>ローン残高 <b>${yen(r.mortgage)}</b></span></div>
+      ${r.events.length?r.events.map(e=>`<article class="life-plan-event"><span>${e.icon}</span><div><strong>${escapeHtml(e.title)}</strong><small>${escapeHtml(e.sub)}</small></div></article>`).join(""):`<p class="life-plan-empty">この年の登録イベントはありません</p>`}
+    </div>
+  </div>`).join("");
+}
+
 function drawMortgageBalanceChart() {
   const canvas=$("mortgageBalanceChart"); if(!canvas) return;
   const ctx=canvas.getContext("2d"), dpr=window.devicePixelRatio||1, w=canvas.clientWidth||640, h=280;
@@ -767,6 +824,7 @@ function renderHome() {
   $("goalProgress").style.width = `${rate}%`;
   renderFutureSnapshot(); renderLifeGoalDashboard();
   renderLifeRoadmap();
+  renderLifePlanTimeline();
   drawMortgageBalanceChart();
 
   drawAllocation();
@@ -1838,7 +1896,7 @@ $("saveBaseButton").addEventListener("click", () => {
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta14-home-dashboard", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta15-life-plan-timeline", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
