@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第10弾 資産・配当推移</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第11弾 目標ダッシュボード</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第10弾・資産配当推移版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第11弾・目標ダッシュボード版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -58,6 +58,16 @@
       <article class="card goal-card">
         <div class="goal-head"><div><span>資産目標</span><strong id="goalAmount">¥0</strong></div><small id="goalRemaining">あと ¥0</small></div>
         <div class="progress-track"><div id="goalProgress" class="progress-bar"></div></div>
+      </article>
+
+      <div class="section-heading goal-dashboard-heading"><div><p>LIFE GOALS</p><h2>家族の目標ダッシュボード</h2></div><span class="goal-dashboard-chip">あとどれくらい？</span></div>
+      <div id="lifeGoalDashboard" class="life-goal-dashboard"></div>
+
+      <h2>住宅ローン残高の見通し</h2>
+      <article class="card chart-card mortgage-home-chart-card">
+        <div class="mortgage-chart-head"><div><strong id="mortgageChartTitle">完済までの残高予測</strong><small id="mortgageChartSub">住宅ローンを入力すると表示されます</small></div><span id="mortgageChartBadge" class="mortgage-chart-badge">未設定</span></div>
+        <canvas id="mortgageBalanceChart" width="640" height="280" aria-label="住宅ローン残高の推移予測"></canvas>
+        <p class="chart-note" id="mortgageChartNote">現在の残高・金利・返済額から概算します。</p>
       </article>
 
       <h2>資産推移</h2>
@@ -392,7 +402,8 @@
       <h2>住宅ローン</h2>
       <article class="card form-card">
         <div class="form-grid">
-          <label>ローン残高（円）<input id="mortgageBalance" type="number" min="0" inputmode="numeric"></label>
+          <label>借入時の金額（円）<input id="mortgageOriginalBalance" type="number" min="0" inputmode="numeric" placeholder="例：46000000"></label>
+          <label>現在のローン残高（円）<input id="mortgageBalance" type="number" min="0" inputmode="numeric"></label>
           <label>金利（％）<input id="mortgageRate" type="number" min="0" step="0.01" inputmode="decimal"></label>
           <label>毎月返済額（円）<input id="mortgageMonthly" type="number" min="0" inputmode="numeric"></label>
           <label>ボーナス返済・年額（円）<input id="mortgageBonus" type="number" min="0" inputmode="numeric"></label>
@@ -407,6 +418,11 @@
         <article class="card metric-card"><span>概算利息</span><strong id="mortgageInterestSummary">¥0</strong></article>
         <article class="card metric-card"><span>繰上返済後残高</span><strong id="mortgageAfterExtraSummary">¥0</strong></article>
       </div>
+      <article class="card mortgage-progress-detail">
+        <div class="mortgage-progress-detail-head"><div><span>返済の進み具合</span><strong id="mortgagePaidSummary">¥0返済済み</strong></div><b id="mortgageProgressRate">0%</b></div>
+        <div class="progress-track"><div id="mortgageProgressBar" class="progress-bar"></div></div>
+        <small id="mortgageProgressCaption">借入時の金額を入力すると進捗が分かります。</small>
+      </article>
 
       <h2>教育資金</h2>
       <article class="card form-card">

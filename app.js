@@ -34,7 +34,7 @@ const defaultState = {
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
-  mortgage: { balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
+  mortgage: { originalBalance: 0, balance: 0, rate: 1.05, monthly: 108000, bonusAnnual: 0, endYear: 2064, extra: 0 },
   savingsGoals: [
     { id: "default-car", category: "車", name: "セレナ買い替え", current: 0, target: 2000000, monthly: 20000, deadline: "2027-04-01" },
     { id: "default-travel", category: "旅行", name: "家族旅行", current: 0, target: 500000, monthly: 10000, deadline: "2027-10-01" },
@@ -146,6 +146,8 @@ function normalize(raw) {
   s.education = { ...defaultState.education, ...(s.education || {}) };
   s.mortgage = { ...defaultState.mortgage, ...(s.mortgage || {}) };
   if (!s.mortgage.balance && s.loan) s.mortgage.balance = Math.max(0, Number(s.loan) || 0);
+  s.mortgage.originalBalance = num(s.mortgage.originalBalance) || num(s.mortgage.balance);
+  if (s.mortgage.originalBalance < num(s.mortgage.balance)) s.mortgage.originalBalance = num(s.mortgage.balance);
   s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
   return s;
 }
@@ -516,11 +518,37 @@ function goalMetrics(g) {
   const rate = target ? Math.min(100, current / target * 100) : 0;
   return { current, target, monthly, remaining, months, neededMonthly, rate };
 }
+function mortgageProjection() {
+  const m = state.mortgage;
+  const now = new Date();
+  let balance = Math.max(0, num(m.balance) - num(m.extra));
+  const monthlyRate = num(m.rate) / 100 / 12;
+  const payment = num(m.monthly) + num(m.bonusAnnual) / 12;
+  const points = [{ year: now.getFullYear(), balance }];
+  let totalInterest = 0, months = 0;
+  const maxMonths = 60 * 12;
+  while (balance > 0.5 && months < maxMonths && payment > 0) {
+    const interest = balance * monthlyRate;
+    totalInterest += interest;
+    const principal = payment - interest;
+    if (principal <= 0) break;
+    balance = Math.max(0, balance - principal);
+    months += 1;
+    if (months % 12 === 0 || balance <= 0.5) {
+      points.push({ year: now.getFullYear() + Math.ceil(months / 12), balance });
+    }
+  }
+  const configuredEnd = Number(m.endYear || 0);
+  const projectedEnd = balance <= 0.5 ? now.getFullYear() + Math.ceil(months / 12) : null;
+  return { points, totalInterest, months, projectedEnd, configuredEnd, remainingBalance: balance, payment };
+}
 function mortgageMetrics() {
-  const m = state.mortgage, balance = num(m.balance), annual = num(m.monthly) * 12 + num(m.bonusAnnual);
-  const years = Math.max(0, Number(m.endYear || 0) - new Date().getFullYear());
-  const roughInterest = balance * (num(m.rate) / 100) * years / 2;
-  return { balance, annual, years, roughInterest, afterExtra: Math.max(0, balance - num(m.extra)) };
+  const m = state.mortgage, balance = num(m.balance), original = Math.max(num(m.originalBalance), balance), annual = num(m.monthly) * 12 + num(m.bonusAnnual);
+  const projection = mortgageProjection();
+  const years = projection.projectedEnd ? Math.max(0, projection.projectedEnd - new Date().getFullYear()) : Math.max(0, Number(m.endYear || 0) - new Date().getFullYear());
+  const paid = Math.max(0, original - balance);
+  const progress = original ? Math.min(100, paid / original * 100) : 0;
+  return { balance, original, paid, progress, annual, years, roughInterest: projection.totalInterest, afterExtra: Math.max(0, balance - num(m.extra)), projection };
 }
 function financialAssets() { return num(state.cash) + investmentTotals().market + educationTotal(); }
 function netWorthValue() { return financialAssets() - num(state.loan); }
@@ -585,6 +613,42 @@ function renderCharlieAdvice() {
   const items = charlieAdviceItems();
   $("charlieAdvice").innerHTML = items.map(x => `<div class="advice-item ${x.tone}"><span>${x.icon}</span><p>${escapeHtml(x.text)}</p></div>`).join("");
 }
+function goalDashboardItem({ icon, title, current, target, remainingLabel, detail, tone = "accent", reverse = false }) {
+  const safeTarget = Math.max(0, num(target));
+  const safeCurrent = Math.max(0, num(current));
+  const rate = safeTarget ? Math.min(100, reverse ? (safeTarget - Math.min(safeTarget, safeCurrent)) / safeTarget * 100 : safeCurrent / safeTarget * 100) : 0;
+  const remaining = reverse ? safeCurrent : Math.max(0, safeTarget - safeCurrent);
+  return `<article class="card life-goal-card ${tone}"><div class="life-goal-head"><span class="life-goal-icon">${icon}</span><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail || "")}</small></div><b>${rate.toFixed(0)}%</b></div><div class="progress-track"><div class="progress-bar" style="width:${rate}%"></div></div><div class="life-goal-values"><span>${reverse ? `残高 ${yen(safeCurrent)}` : `${yen(safeCurrent)} / ${yen(safeTarget)}`}</span><strong>${escapeHtml(remainingLabel || (remaining ? `あと ${yen(remaining)}` : "達成！"))}</strong></div></article>`;
+}
+function renderLifeGoalDashboard() {
+  const wrap = $("lifeGoalDashboard"); if (!wrap) return;
+  const items = [];
+  const mx = mortgageMetrics();
+  if (mx.balance || mx.original) items.push(goalDashboardItem({ icon:"🏠", title:"住宅ローン", current:mx.balance, target:mx.original, reverse:true, remainingLabel:mx.balance ? `完済まで約${mx.years || "—"}年` : "完済！", detail:`返済済み ${yen(mx.paid)}`, tone:"mortgage" }));
+  const e = state.education;
+  [["長女",e.child1,e.target1],["次女",e.child2,e.target2],["三女",e.child3,e.target3]].forEach(([name,current,target])=>{ if(num(current)||num(target)) items.push(goalDashboardItem({icon:"🎓",title:`${name}の教育資金`,current,target,detail:target?`目標 ${yen(target)}`:"目標額を設定してください",tone:"education"})) });
+  state.savingsGoals.forEach(g=>{ const m=goalMetrics(g); if(m.current||m.target) items.push(goalDashboardItem({icon:({"車":"🚗","旅行":"🌴","住宅修繕":"🔧","教育":"🎓","家電":"🏠"}[g.category]||"🎯"),title:g.name,current:m.current,target:m.target,detail:g.deadline?`${g.deadline.replaceAll("-","/")}まで`:`毎月 ${yen(m.monthly)}`,tone:"saving"})) });
+  const financial=financialAssets(), assetTarget=num(state.assetGoal);
+  if(assetTarget) items.push(goalDashboardItem({icon:"💰",title:"総資産目標",current:financial,target:assetTarget,detail:`現在の金融資産 ${yen(financial)}`,tone:"asset"}));
+  wrap.innerHTML = items.length ? items.join("") : '<article class="card life-goal-empty">ライフ画面で住宅ローン・教育資金・積立目標を登録すると、ここに進捗グラフが並びます。</article>';
+}
+function drawMortgageBalanceChart() {
+  const canvas=$("mortgageBalanceChart"); if(!canvas) return;
+  const ctx=canvas.getContext("2d"), dpr=window.devicePixelRatio||1, w=canvas.clientWidth||640, h=280;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const x=mortgageMetrics(), data=x.projection.points;
+  const styles=getComputedStyle(document.body), muted=styles.getPropertyValue("--muted").trim(), line=styles.getPropertyValue("--line").trim(), accent=styles.getPropertyValue("--accent").trim(), text=styles.getPropertyValue("--text").trim();
+  if(!x.balance || data.length<2){ ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="13px sans-serif";ctx.fillText("ローン残高と返済額を入力すると予測を表示します",w/2,h/2);$("mortgageChartBadge").textContent="未設定";$("mortgageChartSub").textContent="住宅ローンを入力すると表示されます";return; }
+  const max=Math.max(...data.map(d=>d.balance),1), pad={left:58,right:16,top:22,bottom:40};
+  const px=i=>pad.left+(data.length===1?0:i*(w-pad.left-pad.right)/(data.length-1));
+  const py=v=>pad.top+(max-v)/max*(h-pad.top-pad.bottom);
+  ctx.strokeStyle=line;ctx.lineWidth=1;ctx.font="10px sans-serif";ctx.fillStyle=muted;ctx.textAlign="right";
+  for(let i=0;i<=4;i++){const yy=pad.top+i*(h-pad.top-pad.bottom)/4,val=max-i*max/4;ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(w-pad.right,yy);ctx.stroke();ctx.fillText(`${Math.round(val/10000)}万`,pad.left-7,yy+3)}
+  ctx.beginPath();data.forEach((d,i)=>i?ctx.lineTo(px(i),py(d.balance)):ctx.moveTo(px(i),py(d.balance)));ctx.strokeStyle=accent;ctx.lineWidth=4;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
+  const labelEvery=Math.max(1,Math.ceil(data.length/6));data.forEach((d,i)=>{ctx.beginPath();ctx.arc(px(i),py(d.balance),i===data.length-1?5:3,0,Math.PI*2);ctx.fillStyle=accent;ctx.fill();if(i%labelEvery===0||i===data.length-1){ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="10px sans-serif";ctx.fillText(String(d.year),px(i),h-15)}});
+  const end=x.projection.projectedEnd;$("mortgageChartBadge").textContent=end?`${end}年 完済見込み`:"要確認";$("mortgageChartSub").textContent=`現在 ${yen(x.balance)} → ${end?`${end}年に¥0見込み`:"返済額では完済時期を算出できません"}`;$("mortgageChartNote").textContent=`金利${num(state.mortgage.rate).toFixed(2)}%、毎月返済とボーナス返済を月割りして概算。実際の返済予定表とは差が出る場合があります。`;
+  ctx.fillStyle=text;ctx.textAlign="left";ctx.font="700 11px sans-serif";ctx.fillText(yen(data[0].balance),pad.left,pad.top-7);
+}
 function renderHome() {
   recordSnapshot();
   const inv = investmentTotals(), budget = budgetTotals();
@@ -613,6 +677,8 @@ function renderHome() {
   $("goalAmount").textContent = yen(goal);
   $("goalRemaining").textContent = financial >= goal ? "目標達成！" : `あと ${yen(Math.max(0, goal - financial))}`;
   $("goalProgress").style.width = `${rate}%`;
+  renderLifeGoalDashboard();
+  drawMortgageBalanceChart();
 
   drawAllocation();
   drawTrend();
@@ -1250,12 +1316,14 @@ function clearEventForm() {
 }
 function renderMortgage() {
   const m = state.mortgage, x = mortgageMetrics();
-  $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
+  $("mortgageOriginalBalance").value = m.originalBalance || ""; $("mortgageBalance").value = m.balance || ""; $("mortgageRate").value = m.rate ?? ""; $("mortgageMonthly").value = m.monthly || "";
   $("mortgageBonus").value = m.bonusAnnual || ""; $("mortgageEndYear").value = m.endYear || ""; $("mortgageExtra").value = m.extra || "";
   $("mortgageAnnualSummary").textContent = yen(x.annual);
   $("mortgageYearsSummary").textContent = x.years ? `約${x.years}年` : "—";
   $("mortgageInterestSummary").textContent = yen(x.roughInterest);
   $("mortgageAfterExtraSummary").textContent = yen(x.afterExtra);
+  $("mortgagePaidSummary").textContent = `${yen(x.paid)}返済済み`; $("mortgageProgressRate").textContent = `${x.progress.toFixed(1)}%`; $("mortgageProgressBar").style.width = `${x.progress}%`;
+  $("mortgageProgressCaption").textContent = x.original ? `借入時 ${yen(x.original)} → 現在 ${yen(x.balance)}。あと ${yen(x.balance)}です。` : "借入時の金額を入力すると進捗が分かります。";
 }
 function educationProgressCard(name, current, target) {
   const rate = target ? Math.min(100, current / target * 100) : 0;
@@ -1611,7 +1679,8 @@ $("saveEventButton").addEventListener("click", () => {
 });
 $("cancelEventEdit").addEventListener("click", clearEventForm);
 $("saveMortgageButton").addEventListener("click", () => {
-  state.mortgage = { balance: num($("mortgageBalance").value), rate: num($("mortgageRate").value), monthly: num($("mortgageMonthly").value), bonusAnnual: num($("mortgageBonus").value), endYear: Number($("mortgageEndYear").value) || 0, extra: num($("mortgageExtra").value) };
+  const balance = num($("mortgageBalance").value);
+  state.mortgage = { originalBalance: Math.max(balance, num($("mortgageOriginalBalance").value)), balance, rate: num($("mortgageRate").value), monthly: num($("mortgageMonthly").value), bonusAnnual: num($("mortgageBonus").value), endYear: Number($("mortgageEndYear").value) || 0, extra: num($("mortgageExtra").value) };
   state.loan = state.mortgage.balance; saveState(); renderAll(); alert("住宅ローンを保存しました");
 });
 $("saveGoalButton").addEventListener("click", () => {
@@ -1627,13 +1696,13 @@ $("saveEducation").addEventListener("click", () => {
   saveState(); renderAll(); alert("教育資金を保存しました");
 });
 $("saveBaseButton").addEventListener("click", () => {
-  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
+  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
-$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta9-dividend-pro", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta11-goal-dashboard", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
