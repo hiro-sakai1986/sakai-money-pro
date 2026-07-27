@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第8弾 同一登録確認版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第9弾 配当金管理Pro</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第8弾・同一登録確認版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第9弾・配当金管理Pro</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -338,11 +338,35 @@
 
       <div id="investmentDividendView" class="investment-view">
         <div class="view-title-row"><div><p class="screen-kicker">DIVIDEND</p><h2>配当カレンダー</h2></div></div>
-        <div class="dividend-summary-grid">
-          <article class="card"><span>年間配当見込み</span><strong id="dividendAnnualView">¥0</strong></article>
-          <article class="card"><span>次の配当月</span><strong id="dividendNextView">未設定</strong></article>
+        <div class="dividend-pro-summary">
+          <article class="card"><span>年間配当予定</span><strong id="dividendAnnualView">¥0</strong><small>登録済みの税引前年間予想</small></article>
+          <article class="card"><span>今年の受取済み</span><strong id="dividendReceivedView">¥0</strong><small id="dividendReceiptCountView">0件を記録</small></article>
+          <article class="card"><span>今年の残り予定</span><strong id="dividendRemainingView">¥0</strong><small>予定 − 受取済み</small></article>
+          <article class="card"><span>次の配当月</span><strong id="dividendNextView">未設定</strong><small id="dividendNextNamesView">配当月を登録してください</small></article>
         </div>
+
+        <article id="dividendNoticeCard" class="card dividend-notice-card"></article>
+
+        <div class="dividend-section-title"><div><p class="screen-kicker">MONTHLY PLAN</p><h3>月別の配当予定</h3></div><button id="showYieldRankingButton" class="secondary compact-button">利回りランキング</button></div>
         <article class="card dividend-calendar-card"><div id="dividendCalendar" class="calendar-grid"></div></article>
+        <article class="card dividend-bars-card"><div id="dividendMonthlyBars" class="dividend-monthly-bars"></div></article>
+
+        <details id="dividendReceiptEditor" class="investment-entry-details dividend-receipt-editor">
+          <summary>＋ 受け取った配当金を記録する</summary>
+          <div id="dividendReceiptFormWrap" class="card form-card investment-form-card">
+            <input id="dividendReceiptId" type="hidden">
+            <div class="form-grid">
+              <label>受取日<input id="dividendReceiptDate" type="date"></label>
+              <label>銘柄<select id="dividendReceiptAsset"></select></label>
+              <label>受取額（円）<input id="dividendReceiptAmount" type="number" min="0" step="1" inputmode="numeric"></label>
+              <label>メモ<input id="dividendReceiptMemo" placeholder="例：2026年期末配当"></label>
+            </div>
+            <div class="form-actions"><button id="saveDividendReceiptButton" class="primary">受取を記録</button><button id="cancelDividendReceiptEdit" class="secondary hidden">編集をやめる</button></div>
+          </div>
+        </details>
+
+        <div class="dividend-section-title"><div><p class="screen-kicker">RECEIVED</p><h3>今年の受取履歴</h3></div><span id="dividendReceiptYearLabel" class="year-chip"></span></div>
+        <div id="dividendReceiptList" class="stack investment-stack"></div>
       </div>
     </section>
 

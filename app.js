@@ -30,6 +30,7 @@ const defaultState = {
   nisaUsage: {},
   nisaPurchases: [],
   confirmedDuplicateGroups: [],
+  dividendReceipts: [],
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
@@ -115,6 +116,18 @@ function normalize(raw) {
     : [];
   s.confirmedDuplicateGroups = Array.isArray(s.confirmedDuplicateGroups)
     ? [...new Set(s.confirmedDuplicateGroups.map(value => String(value || "")).filter(Boolean))]
+    : [];
+  s.dividendReceipts = Array.isArray(s.dividendReceipts)
+    ? s.dividendReceipts.map(item => ({
+        ...item,
+        id: item?.id || uid(),
+        owner: normalizeOwner(item?.owner),
+        assetId: String(item?.assetId || ""),
+        name: String(item?.name || "").trim(),
+        date: String(item?.date || today()),
+        amount: num(item?.amount),
+        memo: String(item?.memo || "").trim()
+      })).filter(item => item.amount > 0)
     : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
@@ -1080,18 +1093,85 @@ function renderPlans() {
     return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions">${nisaButton}<button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">積立・NISA商品はまだありません。</div>`;
 }
-function renderDividendCalendar() {
-  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [] }));
+function currentDividendYear() { return new Date().getFullYear(); }
+function visibleDividendReceipts(year = currentDividendYear()) {
+  return state.dividendReceipts.filter(item => {
+    const itemYear = Number(String(item.date || "").slice(0, 4));
+    return itemYear === year && (currentOwner === "家族合計" || normalizeOwner(item.owner) === currentOwner);
+  });
+}
+function dividendSchedule() {
+  const months = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: 0, names: [], items: [] }));
   for (const a of visibleAssets()) {
     const dividend = num(a.dividend), ms = parseDividendMonths(a.dividendMonths);
-    if (!ms.length) continue;
-    for (const m of ms) { months[m - 1].amount += dividend / ms.length; months[m - 1].names.push(a.name); }
+    if (!dividend || !ms.length) continue;
+    const perMonth = dividend / ms.length;
+    for (const m of ms) {
+      months[m - 1].amount += perMonth;
+      months[m - 1].names.push(a.name);
+      months[m - 1].items.push({ name: a.name, amount: perMonth });
+    }
   }
-  const annual = months.reduce((s,m)=>s+m.amount,0), currentMonth = new Date().getMonth()+1;
+  return months;
+}
+function renderDividendAssetOptions() {
+  const select = $("dividendReceiptAsset");
+  if (!select) return;
+  const current = select.value;
+  const list = visibleAssets().filter(a => num(a.dividend) > 0).sort((a,b)=>String(a.name).localeCompare(String(b.name),"ja"));
+  select.innerHTML = '<option value="">銘柄を選択</option>' + list.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)}${currentOwner === "家族合計" ? `（${escapeHtml(a.owner)}）` : ""}</option>`).join("");
+  if ([...select.options].some(o => o.value === current)) select.value = current;
+}
+function clearDividendReceiptForm() {
+  if (!$("dividendReceiptId")) return;
+  $("dividendReceiptId").value = "";
+  $("dividendReceiptDate").value = today();
+  $("dividendReceiptAsset").value = "";
+  $("dividendReceiptAmount").value = "";
+  $("dividendReceiptMemo").value = "";
+  $("saveDividendReceiptButton").textContent = "受取を記録";
+  $("cancelDividendReceiptEdit").classList.add("hidden");
+}
+function renderDividendCalendar() {
+  if (!$("dividendAnnualView")) return;
+  const months = dividendSchedule();
+  const year = currentDividendYear();
+  const receipts = visibleDividendReceipts(year);
+  const annual = months.reduce((s,m)=>s+m.amount,0);
+  const received = receipts.reduce((s,item)=>s+num(item.amount),0);
+  const remaining = Math.max(0, annual - received);
+  const currentMonth = new Date().getMonth()+1;
   const upcoming = [...months.slice(currentMonth-1), ...months.slice(0,currentMonth-1)].find(m=>m.amount>0);
+  const maxMonth = Math.max(1, ...months.map(m=>m.amount));
+
   $("dividendAnnualView").textContent = yen(annual);
+  $("dividendReceivedView").textContent = yen(received);
+  $("dividendRemainingView").textContent = yen(remaining);
+  $("dividendReceiptCountView").textContent = `${receipts.length}件を記録`;
   $("dividendNextView").textContent = upcoming ? `${upcoming.month}月 ${yen(upcoming.amount)}` : "未設定";
+  $("dividendNextNamesView").textContent = upcoming ? [...new Set(upcoming.names)].join("・") : "配当月を登録してください";
+  $("dividendReceiptYearLabel").textContent = `${year}年`;
+
+  const notice = $("dividendNoticeCard");
+  if (!annual) {
+    notice.className = "card dividend-notice-card neutral";
+    notice.innerHTML = '<strong>配当予定はまだありません</strong><p>保有資産の編集から、年間配当と配当月を登録すると表示されます。</p>';
+  } else if (upcoming && upcoming.month === currentMonth) {
+    notice.className = "card dividend-notice-card now";
+    notice.innerHTML = `<strong>今月は配当予定があります</strong><p>${escapeHtml([...new Set(upcoming.names)].join("・"))}　予定 ${yen(upcoming.amount)}</p>`;
+  } else if (upcoming) {
+    notice.className = "card dividend-notice-card upcoming";
+    notice.innerHTML = `<strong>次は${upcoming.month}月の配当予定</strong><p>${escapeHtml([...new Set(upcoming.names)].join("・"))}　予定 ${yen(upcoming.amount)}</p>`;
+  } else {
+    notice.className = "card dividend-notice-card neutral";
+    notice.innerHTML = '<strong>配当月を確認してください</strong><p>年間配当が登録されていても、配当月がない商品はカレンダーに入りません。</p>';
+  }
+
   $("dividendCalendar").innerHTML = months.map(m => `<div class="month-cell ${m.amount ? 'has-dividend' : ''}"><span>${m.month}月</span><strong>${yen(m.amount)}</strong><small>${escapeHtml([...new Set(m.names)].join("・"))}</small></div>`).join("");
+  $("dividendMonthlyBars").innerHTML = months.map(m => `<div class="dividend-bar-row"><span>${m.month}月</span><div class="dividend-bar-track"><div style="width:${m.amount/maxMonth*100}%"></div></div><strong>${yen(m.amount)}</strong></div>`).join("");
+
+  renderDividendAssetOptions();
+  $("dividendReceiptList").innerHTML = receipts.length ? [...receipts].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(item => `<article class="item-card dividend-receipt-card"><div class="item-head"><div><div class="item-title">${escapeHtml(item.name || "配当金")}</div><div class="item-sub">${escapeHtml(item.owner)}・${escapeHtml(item.date || "—")}${item.memo ? `・${escapeHtml(item.memo)}` : ""}</div></div><div class="item-value positive">${yen(item.amount)}</div></div><div class="item-actions"><button class="edit-button" data-edit-dividend-receipt="${item.id}">編集</button><button class="delete-button" data-delete-dividend-receipt="${item.id}">削除</button></div></article>`).join("") : '<div class="empty">今年受け取った配当金を記録すると、受取済みと残り予定が分かります。</div>';
 }
 function setInvestmentView(view) {
   currentInvestmentView = view;
@@ -1258,9 +1338,54 @@ $("saveNisaPurchaseButton").addEventListener("click", () => {
   if (id) state.nisaPurchases = state.nisaPurchases.map(item => item.id === id ? data : item); else state.nisaPurchases.push(data);
   saveState(); clearNisaPurchaseForm(); renderAll();
 });
+$("saveDividendReceiptButton").addEventListener("click", () => {
+  const amount = num($("dividendReceiptAmount").value);
+  const assetId = $("dividendReceiptAsset").value;
+  const asset = state.assets.find(a => a.id === assetId);
+  if (!asset) return alert("銘柄を選んでください");
+  if (!amount) return alert("受取額を入力してください");
+  const id = $("dividendReceiptId").value;
+  const data = {
+    id: id || uid(),
+    owner: normalizeOwner(asset.owner),
+    assetId: asset.id,
+    name: asset.name,
+    date: $("dividendReceiptDate").value || today(),
+    amount,
+    memo: $("dividendReceiptMemo").value.trim()
+  };
+  if (id) state.dividendReceipts = state.dividendReceipts.map(item => item.id === id ? data : item); else state.dividendReceipts.push(data);
+  saveState(); clearDividendReceiptForm(); renderDividendCalendar();
+});
+$("cancelDividendReceiptEdit").addEventListener("click", clearDividendReceiptForm);
+$("showYieldRankingButton").addEventListener("click", () => {
+  currentRanking = "yield";
+  document.querySelectorAll(".ranking-tab").forEach(x => x.classList.toggle("active", x.dataset.ranking === "yield"));
+  setInvestmentView("ranking");
+  renderRanking();
+});
 $("cancelNisaPurchaseEdit").addEventListener("click", clearNisaPurchaseForm);
 document.addEventListener("click", e => {
   const d = e.target.dataset;
+  if (d.deleteDividendReceipt && confirm("この配当受取記録を削除しますか？")) {
+    state.dividendReceipts = state.dividendReceipts.filter(item => item.id !== d.deleteDividendReceipt);
+    saveState(); clearDividendReceiptForm(); renderDividendCalendar();
+  }
+  if (d.editDividendReceipt) {
+    const item = state.dividendReceipts.find(x => x.id === d.editDividendReceipt);
+    if (item) {
+      $("dividendReceiptId").value = item.id;
+      renderDividendAssetOptions();
+      $("dividendReceiptAsset").value = item.assetId || "";
+      $("dividendReceiptDate").value = item.date || today();
+      $("dividendReceiptAmount").value = item.amount || "";
+      $("dividendReceiptMemo").value = item.memo || "";
+      $("saveDividendReceiptButton").textContent = "変更を保存";
+      $("cancelDividendReceiptEdit").classList.remove("hidden");
+      $("dividendReceiptEditor").open = true;
+      $("dividendReceiptFormWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
   if (d.confirmDuplicate) {
     const message = "この登録は別々の買付・契約として正しいですか？\n確認後は、同じ組み合わせを今後の点検で警告しません。";
     if (confirm(message) && !state.confirmedDuplicateGroups.includes(d.confirmDuplicate)) {
@@ -1399,7 +1524,7 @@ $("saveNisaUsageButton").addEventListener("click", () => {
 });
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
+  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); clearDividendReceiptForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
 }));
 document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
@@ -1448,7 +1573,7 @@ $("saveBaseButton").addEventListener("click", () => {
 });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta8-duplicate-confirm", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta9-dividend-pro", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
