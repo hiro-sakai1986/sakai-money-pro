@@ -22,6 +22,8 @@ const LEGACY_KEYS = [
 
 const defaultState = {
   cash: 0,
+  unallocatedCash: 0,
+  bankAccounts: [],
   loan: 0,
   assetGoal: 10000000,
   futureSimulation: { annualReturn: 3, monthlyExtra: 0, horizon: 20 },
@@ -130,6 +132,21 @@ function normalize(raw) {
         memo: String(item?.memo || "").trim()
       })).filter(item => item.amount > 0)
     : [];
+  const rawHasUnallocatedCash = Boolean(raw && Object.prototype.hasOwnProperty.call(raw, "unallocatedCash"));
+  s.bankAccounts = Array.isArray(s.bankAccounts) ? s.bankAccounts.map(item => ({
+    ...item,
+    id: item?.id || uid(),
+    owner: normalizeOwner(item?.owner),
+    bankName: String(item?.bankName || "").trim(),
+    accountType: String(item?.accountType || "普通預金").trim(),
+    purpose: String(item?.purpose || "生活費").trim(),
+    balance: num(item?.balance),
+    updatedAt: String(item?.updatedAt || today()),
+    memo: String(item?.memo || "").trim()
+  })).filter(item => item.bankName) : [];
+  const bankTotal = s.bankAccounts.reduce((sum, item) => sum + num(item.balance), 0);
+  s.unallocatedCash = rawHasUnallocatedCash ? num(s.unallocatedCash) : Math.max(0, num(s.cash) - bankTotal);
+  s.cash = bankTotal + s.unallocatedCash;
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
@@ -167,6 +184,7 @@ function hasMeaningfulData(raw) {
   const goals = Array.isArray(raw.savingsGoals) ? raw.savingsGoals : [];
   return Boolean(
     Number(raw.cash) ||
+    (Array.isArray(raw.bankAccounts) && raw.bankAccounts.length) ||
     Number(raw.loan) ||
     (Array.isArray(raw.assets) && raw.assets.length) ||
     (Array.isArray(raw.plans) && raw.plans.length) ||
@@ -559,6 +577,8 @@ function mortgageMetrics() {
   const progress = original ? Math.min(100, paid / original * 100) : 0;
   return { balance, original, paid, progress, annual, years, roughInterest: projection.totalInterest, afterExtra: Math.max(0, balance - num(m.extra)), projection };
 }
+function bankAccountsTotal() { return (state.bankAccounts || []).reduce((sum, item) => sum + num(item.balance), 0); }
+function syncCashFromBanks() { state.cash = bankAccountsTotal() + num(state.unallocatedCash); }
 function financialAssets() { return num(state.cash) + investmentTotals().market + educationTotal(); }
 function netWorthValue() { return financialAssets() - num(state.loan); }
 function recordSnapshot() {
@@ -849,6 +869,7 @@ function renderHome() {
   $("netWorth").textContent = yen(netWorth);
   $("netWorthSub").textContent = `金融資産 ${yen(financial)} − ローン ${yen(state.loan)}`;
   $("cashSummary").textContent = yen(state.cash);
+  renderBankAccountSummary();
   $("investmentSummary").textContent = yen(inv.market);
   $("monthlyBalance").textContent = yen(budget.income - budget.expense);
   $("monthlyBalance").className = budget.income - budget.expense < 0 ? "negative" : "positive";
@@ -878,6 +899,38 @@ function renderHome() {
   drawAllocation();
   drawTrend();
   renderCharlieAdvice();
+}
+function renderBankAccountSummary() {
+  const wrap = $("homeBankAccounts");
+  if (!wrap) return;
+  const accounts = [...(state.bankAccounts || [])].sort((a,b)=>num(b.balance)-num(a.balance));
+  const total = bankAccountsTotal();
+  $("homeBankTotal").textContent = yen(total);
+  $("homeBankCount").textContent = `${accounts.length}口座`;
+  wrap.innerHTML = accounts.length ? accounts.slice(0,5).map(item => `
+    <div class="home-bank-row"><div><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.owner)}・${escapeHtml(item.purpose)}・${escapeHtml(item.accountType)}</small></div><b>${yen(item.balance)}</b></div>`).join("") : '<div class="empty">設定から銀行口座を登録できます。</div>';
+  const more = $("homeBankMore");
+  if (more) more.textContent = accounts.length > 5 ? `ほか ${accounts.length-5}口座` : "";
+}
+function renderBankAccounts() {
+  const list = $("bankAccountList");
+  if (!list) return;
+  const accounts = [...(state.bankAccounts || [])].sort((a,b)=>String(a.owner).localeCompare(String(b.owner),"ja") || num(b.balance)-num(a.balance));
+  const total = bankAccountsTotal();
+  $("bankAccountsTotal").textContent = yen(total);
+  $("bankAccountsCount").textContent = `${accounts.length}口座`;
+  $("bankUnallocatedSummary").textContent = yen(state.unallocatedCash);
+  list.innerHTML = accounts.length ? accounts.map(item => `<article class="bank-account-item">
+    <div class="bank-account-main"><div><span class="bank-owner-chip">${escapeHtml(item.owner)}</span><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.accountType)}・${escapeHtml(item.purpose)}　更新 ${escapeHtml(item.updatedAt)}</small></div><b>${yen(item.balance)}</b></div>
+    ${item.memo ? `<p>${escapeHtml(item.memo)}</p>` : ""}
+    <div class="item-actions"><button class="edit-button" data-edit-bank="${item.id}">編集</button><button class="delete-button" data-delete-bank="${item.id}">削除</button></div>
+  </article>`).join("") : '<div class="empty">銀行口座を登録すると、口座別残高と預金合計を確認できます。</div>';
+}
+function clearBankAccountForm() {
+  $("bankAccountId").value = "";
+  $("bankName").value = ""; $("bankBalance").value = ""; $("bankMemo").value = "";
+  $("bankOwner").value = "本人"; $("bankAccountType").value = "普通預金"; $("bankPurpose").value = "生活費"; $("bankUpdatedAt").value = today();
+  $("saveBankAccountButton").textContent = "銀行口座を追加"; $("cancelBankAccountEdit").classList.add("hidden");
 }
 function setChangeMetric(valueId, subId, value, label) {
   const el = $(valueId);
@@ -1578,12 +1631,12 @@ function clearGoalForm() {
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
-  $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
+  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents(); renderBankAccounts();
+  $("cashInput").value = state.unallocatedCash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
   $("txId").value = "";
-  $("txDate").value = today();
+  $("bankUpdatedAt").value = today(); $("txDate").value = today();
   $("txKind").value = "expense";
   ["txCategory", "txAmount", "txMemo"].forEach(id => $(id).value = "");
   $("addTxButton").textContent = "家計を追加";
@@ -1937,8 +1990,28 @@ $("saveEducation").addEventListener("click", () => {
   state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value), target1: num($("edu1Target").value), target2: num($("edu2Target").value), target3: num($("edu3Target").value) };
   saveState(); renderAll(); alert("教育資金を保存しました");
 });
+$("saveBankAccountButton").addEventListener("click", () => {
+  const bankName = $("bankName").value.trim();
+  if (!bankName) return alert("銀行名・口座名を入力してください");
+  const id = $("bankAccountId").value || uid();
+  const item = { id, owner: normalizeOwner($("bankOwner").value), bankName, accountType: $("bankAccountType").value, purpose: $("bankPurpose").value, balance: num($("bankBalance").value), updatedAt: $("bankUpdatedAt").value || today(), memo: $("bankMemo").value.trim() };
+  const index = state.bankAccounts.findIndex(account => account.id === id);
+  if (index >= 0) state.bankAccounts[index] = item; else state.bankAccounts.push(item);
+  syncCashFromBanks(); saveState(); clearBankAccountForm(); renderAll();
+});
+$("cancelBankAccountEdit").addEventListener("click", clearBankAccountForm);
+document.addEventListener("click", event => {
+  const edit = event.target.closest("[data-edit-bank]");
+  if (edit) {
+    const item = state.bankAccounts.find(account => account.id === edit.dataset.editBank); if (!item) return;
+    $("bankAccountId").value=item.id; $("bankOwner").value=item.owner; $("bankName").value=item.bankName; $("bankAccountType").value=item.accountType; $("bankPurpose").value=item.purpose; $("bankBalance").value=item.balance; $("bankUpdatedAt").value=item.updatedAt; $("bankMemo").value=item.memo || "";
+    $("saveBankAccountButton").textContent="変更を保存"; $("cancelBankAccountEdit").classList.remove("hidden"); $("bankAccountEditor").open=true; $("bankAccountEditor").scrollIntoView({behavior:"smooth",block:"center"}); return;
+  }
+  const del = event.target.closest("[data-delete-bank]");
+  if (del && confirm("この銀行口座を削除しますか？")) { state.bankAccounts = state.bankAccounts.filter(account => account.id !== del.dataset.deleteBank); syncCashFromBanks(); saveState(); renderAll(); }
+});
 $("saveBaseButton").addEventListener("click", () => {
-  state.cash = num($("cashInput").value); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
+  state.unallocatedCash = num($("cashInput").value); syncCashFromBanks(); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
@@ -1946,7 +2019,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta16-future-simulation", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta17-bank-accounts", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -1961,7 +2034,7 @@ $("resetButton").addEventListener("click", () => {
 });
 window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); renderHistoryDashboard(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
-$("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
+$("bankUpdatedAt").value = today(); $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
 $("planMethod").addEventListener("change", syncPlanMethodUI);
 syncPlanMethodUI();
 recordSnapshot(); saveState(); renderAll();
