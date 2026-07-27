@@ -916,6 +916,7 @@ function renderHome() {
   $("cashSummary").textContent = yen(state.cash);
   renderBankAccountSummary();
   renderHomeInsuranceSummary();
+  renderAssetOverview();
   $("investmentSummary").textContent = yen(inv.market);
   $("monthlyBalance").textContent = yen(budget.income - budget.expense);
   $("monthlyBalance").className = budget.income - budget.expense < 0 ? "negative" : "positive";
@@ -958,6 +959,37 @@ function renderBankAccountSummary() {
   const more = $("homeBankMore");
   if (more) more.textContent = accounts.length > 5 ? `ほか ${accounts.length-5}口座` : "";
 }
+
+function renderAssetOverview() {
+  const cash = num(state.cash);
+  const investment = investmentTotals().market;
+  const education = educationTotal();
+  const insurance = insuranceAssetTotal();
+  const total = cash + investment + education + insurance;
+  const net = total - num(state.loan);
+  const parts = [
+    { label: "預金", value: cash, color: "#d946a8" },
+    { label: "投資", value: investment, color: "#7c4dff" },
+    { label: "教育資金", value: education, color: "#4f9478" },
+    { label: "保険資産", value: insurance, color: "#e29a39" }
+  ];
+  if ($("assetOverviewFinancial")) $("assetOverviewFinancial").textContent = yen(total);
+  if ($("assetOverviewNetWorth")) $("assetOverviewNetWorth").textContent = `純資産 ${yen(net)}`;
+  if ($("assetOverviewCash")) $("assetOverviewCash").textContent = yen(cash);
+  if ($("assetOverviewInvestment")) $("assetOverviewInvestment").textContent = yen(investment);
+  if ($("assetOverviewEducation")) $("assetOverviewEducation").textContent = yen(education);
+  if ($("assetOverviewInsurance")) $("assetOverviewInsurance").textContent = yen(insurance);
+  if ($("assetOverviewDonutCenter")) $("assetOverviewDonutCenter").textContent = total >= 10000000 ? `${(total/10000000).toFixed(1)}千万` : `${Math.round(total/10000)}万`;
+  let cursor = 0;
+  const gradient = parts.filter(x=>x.value>0).map(x=>{ const start=cursor; cursor += total ? x.value/total*360 : 0; return `${x.color} ${start}deg ${cursor}deg`; }).join(",");
+  if ($("assetOverviewDonut")) $("assetOverviewDonut").style.background = total ? `conic-gradient(${gradient})` : "conic-gradient(var(--surface2) 0deg 360deg)";
+  if ($("assetOverviewLegend")) $("assetOverviewLegend").innerHTML = parts.map(x=>{ const rate=total?x.value/total*100:0; return `<div><i style="background:${x.color}"></i><span>${x.label}</span><strong>${rate.toFixed(1)}%</strong><small>${yen(x.value)}</small></div>`; }).join("");
+  const snaps = [...(state.snapshots || [])].sort((x,y)=>String(x.month).localeCompare(String(y.month)));
+  const current = snaps.at(-1), previous = snaps.length > 1 ? snaps.at(-2) : null;
+  if ($("assetOverviewChange")) $("assetOverviewChange").textContent = previous ? `${num(current?.financial)-num(previous.financial)>=0?"＋":"−"}${yen(Math.abs(num(current?.financial)-num(previous.financial)))}` : "記録をためると表示";
+  if ($("assetOverviewChangeSub")) $("assetOverviewChangeSub").textContent = previous ? `${previous.month}から${current.month}の金融資産の変化` : "毎月の記録から前月比を計算します";
+}
+
 function renderHomeInsuranceSummary() {
   const policies = state.insurancePolicies || [];
   const monthly = policies.reduce((sum,item)=>sum+insuranceMonthlyPremium(item),0);
