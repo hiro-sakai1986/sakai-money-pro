@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第17弾 銀行口座管理版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第18弾 銀行口座ダッシュボード版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第17弾・銀行口座管理版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第18弾・銀行口座ダッシュボード版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -553,12 +553,27 @@
         </div>
         <button class="primary" id="saveBaseButton">基本情報を保存</button>
       </article>
-      <h2>銀行口座管理</h2>
+      <div class="section-heading bank-dashboard-heading"><div><p>BANK DASHBOARD</p><h2>銀行口座ダッシュボード</h2></div><span class="future-snapshot-chip">第18弾</span></div>
+      <article class="card bank-hero-card">
+        <div><span>総預金</span><strong id="bankGrandTotal">¥0</strong><small id="bankGrandTotalSub">登録口座＋未振り分け預金</small></div>
+        <div id="bankDistributionChart" class="bank-donut" role="img" aria-label="銀行口座の残高割合"><span id="bankDistributionCenter">0口座</span></div>
+      </article>
       <div class="bank-summary-grid">
         <article class="card metric-card"><span>登録口座の合計</span><strong id="bankAccountsTotal">¥0</strong></article>
         <article class="card metric-card"><span>登録数</span><strong id="bankAccountsCount">0口座</strong></article>
         <article class="card metric-card"><span>未振り分け預金</span><strong id="bankUnallocatedSummary">¥0</strong></article>
       </div>
+      <article class="card bank-tools-card">
+        <div class="bank-owner-tabs" id="bankOwnerTabs" aria-label="名義で絞り込み">
+          <button type="button" class="active" data-bank-owner="すべて">すべて</button><button type="button" data-bank-owner="本人">本人</button><button type="button" data-bank-owner="夫">夫</button><button type="button" data-bank-owner="長女">長女</button><button type="button" data-bank-owner="次女">次女</button><button type="button" data-bank-owner="三女">三女</button><button type="button" data-bank-owner="家族">家族</button>
+        </div>
+        <div class="bank-tool-grid">
+          <label>口座を検索<input id="bankSearch" type="search" placeholder="銀行名・用途・メモ"></label>
+          <label>並び替え<select id="bankSort"><option value="balance">残高が多い順</option><option value="updated">更新日が新しい順</option><option value="bank">銀行名順</option><option value="owner">名義順</option></select></label>
+        </div>
+      </article>
+      <article id="bankCharlieAdvice" class="card bank-advice-card"></article>
+      <div id="bankDistributionLegend" class="bank-distribution-legend"></div>
       <details id="bankAccountEditor" class="card form-card editor-details">
         <summary>＋ 銀行口座を登録する</summary>
         <input id="bankAccountId" type="hidden">
@@ -566,7 +581,7 @@
           <label>名義<select id="bankOwner"><option>本人</option><option>夫</option><option>長女</option><option>次女</option><option>三女</option><option>家族</option></select></label>
           <label>銀行名・口座名<input id="bankName" placeholder="例：ゆうちょ銀行"></label>
           <label>口座種類<select id="bankAccountType"><option>普通預金</option><option>定期預金</option><option>貯蓄預金</option><option>その他</option></select></label>
-          <label>用途<select id="bankPurpose"><option>生活費</option><option>貯蓄</option><option>教育費</option><option>給与</option><option>旅行</option><option>予備費</option><option>子ども用</option><option>その他</option></select></label>
+          <label>用途<select id="bankPurpose"><option>生活費</option><option>貯蓄</option><option>教育費</option><option>給与</option><option>旅行</option><option>予備費</option><option>子ども用</option><option>緊急資金</option><option>投資待機資金</option><option>車</option><option>住宅修繕</option><option>その他</option></select></label>
           <label>現在残高（円）<input id="bankBalance" type="number" min="0" step="1"></label>
           <label>更新日<span class="date-input-wrap"><input id="bankUpdatedAt" type="date"></span></label>
           <label class="full-width">メモ<input id="bankMemo" placeholder="例：児童手当の入金口座"></label>

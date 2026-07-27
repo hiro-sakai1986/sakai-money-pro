@@ -912,19 +912,69 @@ function renderBankAccountSummary() {
   const more = $("homeBankMore");
   if (more) more.textContent = accounts.length > 5 ? `ほか ${accounts.length-5}口座` : "";
 }
+let selectedBankOwner = "すべて";
+function bankPurposeClass(purpose) {
+  const text = String(purpose || "その他");
+  if (/生活費|給与/.test(text)) return "living";
+  if (/教育|子ども/.test(text)) return "education";
+  if (/旅行/.test(text)) return "travel";
+  if (/投資/.test(text)) return "investment";
+  if (/緊急|予備/.test(text)) return "emergency";
+  if (/車/.test(text)) return "car";
+  if (/修繕/.test(text)) return "repair";
+  if (/貯蓄/.test(text)) return "saving";
+  return "other";
+}
+function daysSince(dateText) {
+  const value = new Date(`${dateText || today()}T00:00:00`);
+  return Number.isNaN(value.getTime()) ? 0 : Math.max(0, Math.floor((Date.now() - value.getTime()) / 86400000));
+}
 function renderBankAccounts() {
   const list = $("bankAccountList");
   if (!list) return;
-  const accounts = [...(state.bankAccounts || [])].sort((a,b)=>String(a.owner).localeCompare(String(b.owner),"ja") || num(b.balance)-num(a.balance));
+  const all = [...(state.bankAccounts || [])];
   const total = bankAccountsTotal();
+  const grandTotal = total + num(state.unallocatedCash);
   $("bankAccountsTotal").textContent = yen(total);
-  $("bankAccountsCount").textContent = `${accounts.length}口座`;
+  $("bankAccountsCount").textContent = `${all.length}口座`;
   $("bankUnallocatedSummary").textContent = yen(state.unallocatedCash);
-  list.innerHTML = accounts.length ? accounts.map(item => `<article class="bank-account-item">
-    <div class="bank-account-main"><div><span class="bank-owner-chip">${escapeHtml(item.owner)}</span><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.accountType)}・${escapeHtml(item.purpose)}　更新 ${escapeHtml(item.updatedAt)}</small></div><b>${yen(item.balance)}</b></div>
-    ${item.memo ? `<p>${escapeHtml(item.memo)}</p>` : ""}
-    <div class="item-actions"><button class="edit-button" data-edit-bank="${item.id}">編集</button><button class="delete-button" data-delete-bank="${item.id}">削除</button></div>
-  </article>`).join("") : '<div class="empty">銀行口座を登録すると、口座別残高と預金合計を確認できます。</div>';
+  $("bankGrandTotal").textContent = yen(grandTotal);
+  $("bankGrandTotalSub").textContent = `登録口座 ${yen(total)} ＋ 未振り分け ${yen(state.unallocatedCash)}`;
+  $("bankDistributionCenter").textContent = `${all.length}口座`;
+
+  const owner = selectedBankOwner;
+  const query = String($("bankSearch")?.value || "").trim().toLowerCase();
+  const sort = $("bankSort")?.value || "balance";
+  let accounts = all.filter(item => owner === "すべて" || item.owner === owner).filter(item => !query || [item.bankName,item.owner,item.purpose,item.accountType,item.memo].join(" ").toLowerCase().includes(query));
+  accounts.sort((a,b) => sort === "updated" ? String(b.updatedAt).localeCompare(String(a.updatedAt)) : sort === "bank" ? String(a.bankName).localeCompare(String(b.bankName),"ja") : sort === "owner" ? String(a.owner).localeCompare(String(b.owner),"ja") || num(b.balance)-num(a.balance) : num(b.balance)-num(a.balance));
+
+  list.innerHTML = accounts.length ? accounts.map(item => {
+    const stale = daysSince(item.updatedAt) >= 90;
+    return `<article class="bank-account-item purpose-${bankPurposeClass(item.purpose)}">
+      <div class="bank-account-main"><div><div class="bank-chip-row"><span class="bank-owner-chip">${escapeHtml(item.owner)}</span><span class="bank-purpose-chip">${escapeHtml(item.purpose)}</span>${stale?'<span class="bank-stale-chip">要更新</span>':''}</div><strong>${escapeHtml(item.bankName)}</strong><small>${escapeHtml(item.accountType)}　最終更新 ${escapeHtml(item.updatedAt)}</small></div><b>${yen(item.balance)}</b></div>
+      ${item.memo ? `<p>${escapeHtml(item.memo)}</p>` : ""}
+      <div class="item-actions"><button class="edit-button" data-edit-bank="${item.id}">編集</button><button class="delete-button" data-delete-bank="${item.id}">削除</button></div>
+    </article>`;
+  }).join("") : '<div class="empty">条件に一致する銀行口座はありません。</div>';
+
+  const ranked = all.filter(x=>num(x.balance)>0).sort((a,b)=>num(b.balance)-num(a.balance));
+  const chart = $("bankDistributionChart"), legend = $("bankDistributionLegend");
+  if (ranked.length && total > 0) {
+    let cursor=0; const colors=["#8b5cf6","#d946a8","#2f9d72","#e29a39","#3d7ad6","#9a6f7f"];
+    const slices = ranked.slice(0,5).map((item,i)=>{ const pct=num(item.balance)/total*100; const from=cursor; cursor+=pct; return `${colors[i%colors.length]} ${from}% ${cursor}%`; });
+    if (cursor < 100) slices.push(`#d9d6df ${cursor}% 100%`);
+    chart.style.background=`conic-gradient(${slices.join(",")})`;
+    legend.innerHTML = ranked.slice(0,5).map((item,i)=>`<div><span style="background:${colors[i%colors.length]}"></span><strong>${escapeHtml(item.bankName)}</strong><small>${(num(item.balance)/total*100).toFixed(1)}%・${yen(item.balance)}</small></div>`).join("");
+  } else { chart.style.background="conic-gradient(#e8e5ec 0 100%)"; legend.innerHTML=""; }
+
+  const advice = $("bankCharlieAdvice");
+  const top = ranked[0], concentrated = top && total > 0 ? num(top.balance)/total : 0;
+  const staleCount = all.filter(x=>daysSince(x.updatedAt)>=90).length;
+  let message = all.length ? "口座別残高を登録できています。更新日をそろえると、預金合計をより正確に把握できます。" : "まずは残高が大きい口座から登録すると、預金全体を早く把握できます。";
+  if (concentrated >= .6) message = `${top.bankName}に登録預金の${Math.round(concentrated*100)}%が集中しています。目的や預金保護の観点から、必要に応じて分散も検討できます。`;
+  else if (staleCount) message = `${staleCount}口座が90日以上更新されていません。残高を確認すると、総預金の精度が上がります。`;
+  else if (num(state.unallocatedCash)>0 && all.length) message = `未振り分け預金が${yen(state.unallocatedCash)}あります。口座登録が終わった分だけ未振り分け額を減らすと、二重計上を防げます。`;
+  advice.innerHTML=`<div class="bank-advice-title"><span>Ｃ</span><div><strong>チャーリーから口座チェック</strong><small>登録内容を端末内で分析</small></div></div><p>${escapeHtml(message)}</p>`;
 }
 function clearBankAccountForm() {
   $("bankAccountId").value = "";
@@ -1990,6 +2040,14 @@ $("saveEducation").addEventListener("click", () => {
   state.education = { child1: num($("edu1").value), child2: num($("edu2").value), child3: num($("edu3").value), monthly: num($("eduMonthly").value), target1: num($("edu1Target").value), target2: num($("edu2Target").value), target3: num($("edu3Target").value) };
   saveState(); renderAll(); alert("教育資金を保存しました");
 });
+$("bankSearch")?.addEventListener("input", renderBankAccounts);
+$("bankSort")?.addEventListener("change", renderBankAccounts);
+$("bankOwnerTabs")?.addEventListener("click", event => {
+  const button = event.target.closest("[data-bank-owner]"); if (!button) return;
+  selectedBankOwner = button.dataset.bankOwner;
+  $("bankOwnerTabs").querySelectorAll("button").forEach(item=>item.classList.toggle("active", item===button));
+  renderBankAccounts();
+});
 $("saveBankAccountButton").addEventListener("click", () => {
   const bankName = $("bankName").value.trim();
   if (!bankName) return alert("銀行名・口座名を入力してください");
@@ -2019,7 +2077,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta17-bank-accounts", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta18-bank-dashboard", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
