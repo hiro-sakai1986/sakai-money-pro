@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第22弾 保険ホーム同期修正版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第23弾 資産ダッシュボード完成版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=22">
+  <link rel="stylesheet" href="./style.css?v=23">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第22弾・保険ホーム同期修正版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第23弾・資産ダッシュボード完成版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -84,7 +84,21 @@
         <div id="charlieAdvice" class="advice-list"></div>
       </article>
 
-      <div class="section-heading"><div><p>OVERVIEW</p><h2>資産ダッシュボード</h2></div></div>
+      <div class="section-heading asset-overview-heading"><div><p>ASSET OVERVIEW</p><h2>資産ダッシュボード完成版</h2></div><span class="asset-overview-chip">家のお金を5秒で確認</span></div>
+      <article class="card asset-overview-card">
+        <div class="asset-overview-total"><span>金融資産合計</span><strong id="assetOverviewFinancial">¥0</strong><small id="assetOverviewNetWorth">純資産 ¥0</small></div>
+        <div class="asset-overview-layout">
+          <div class="asset-overview-donut" id="assetOverviewDonut"><span><b id="assetOverviewDonutCenter">¥0</b><small>金融資産</small></span></div>
+          <div id="assetOverviewLegend" class="asset-overview-legend"></div>
+        </div>
+        <div class="asset-overview-grid">
+          <div><span>預金</span><strong id="assetOverviewCash">¥0</strong></div>
+          <div><span>投資</span><strong id="assetOverviewInvestment">¥0</strong></div>
+          <div><span>教育資金</span><strong id="assetOverviewEducation">¥0</strong></div>
+          <div><span>保険資産</span><strong id="assetOverviewInsurance">¥0</strong></div>
+        </div>
+        <div class="asset-overview-insight"><span>今月の変化</span><strong id="assetOverviewChange">記録をためると表示</strong><small id="assetOverviewChangeSub">毎月の記録から前月比を計算します</small></div>
+      </article>
       <div class="dashboard-grid">
         <article class="card dashboard-card"><span>前月比</span><strong id="monthChange">—</strong><small id="monthChangeSub">記録をためると表示</small></article>
         <article class="card dashboard-card"><span>今年の増減</span><strong id="yearChange">—</strong><small id="yearChangeSub">年初との比較</small></article>
@@ -663,6 +677,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=22"></script>
+  <script src="./app.js?v=23"></script>
 </body>
 </html>
