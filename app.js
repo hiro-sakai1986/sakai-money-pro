@@ -636,6 +636,58 @@ function renderLifeGoalDashboard() {
   if(assetTarget) items.push(goalDashboardItem({icon:"💰",title:"総資産目標",current:financial,target:assetTarget,detail:`現在の金融資産 ${yen(financial)}`,tone:"asset"}));
   wrap.innerHTML = items.length ? items.join("") : '<article class="card life-goal-empty">ライフ画面で住宅ローン・教育資金・積立目標を登録すると、ここに進捗グラフが並びます。</article>';
 }
+function roadmapGoalRows() {
+  const rows = [];
+  const mx = mortgageMetrics();
+  if (mx.original > 0) rows.push({ key:"mortgage", title:"住宅ローン", rate:Math.min(100, mx.progress), remaining:mx.balance, deadline:num(state.mortgage.endYear) || null, detail:`残高 ${yen(mx.balance)}`, attention:false });
+  const e=state.education;
+  [["長女",e.child1,e.target1],["次女",e.child2,e.target2],["三女",e.child3,e.target3]].forEach(([name,current,target])=>{
+    current=num(current); target=num(target); if(!target) return;
+    const event=[...state.lifeEvents].filter(x=>x.person===name && Number(x.year)>=new Date().getFullYear()).sort((a,b)=>Number(a.year)-Number(b.year))[0];
+    rows.push({key:`edu-${name}`,title:`${name}の教育資金`,rate:Math.min(100,current/target*100),remaining:Math.max(0,target-current),deadline:event?Number(event.year):null,detail:`あと ${yen(Math.max(0,target-current))}`,attention:false});
+  });
+  state.savingsGoals.forEach(g=>{
+    const m=goalMetrics(g); if(!m.target) return;
+    const y=g.deadline?Number(String(g.deadline).slice(0,4)):null;
+    rows.push({key:`goal-${g.id}`,title:g.name,rate:m.rate,remaining:m.remaining,deadline:y,deadlineText:g.deadline||"",detail:`あと ${yen(m.remaining)}`,attention:Boolean(m.months>0 && m.monthly<m.neededMonthly),neededMonthly:m.neededMonthly,monthly:m.monthly});
+  });
+  const target=num(state.assetGoal), current=financialAssets();
+  if(target) rows.push({key:"asset",title:"総資産目標",rate:Math.min(100,current/target*100),remaining:Math.max(0,target-current),deadline:null,detail:`あと ${yen(Math.max(0,target-current))}`,attention:false});
+  return rows;
+}
+function renderLifeRoadmap() {
+  const rows=roadmapGoalRows();
+  const active=rows.filter(x=>x.rate<100);
+  const overall=rows.length ? rows.reduce((sum,x)=>sum+x.rate,0)/rows.length : 0;
+  $("roadmapOverallRate").textContent=`${overall.toFixed(0)}%`;
+  $("roadmapOverallSub").textContent=rows.length?`${rows.length}目標の平均`:`目標を登録すると表示`;
+  const closest=[...active].sort((a,b)=>b.rate-a.rate)[0] || [...rows].sort((a,b)=>b.rate-a.rate)[0];
+  $("roadmapClosestGoal").textContent=closest?closest.title:"—";
+  $("roadmapClosestSub").textContent=closest?`${closest.rate.toFixed(0)}%・${closest.detail}`:"—";
+  const dated=active.filter(x=>x.deadline).sort((a,b)=>a.deadline-b.deadline);
+  const next=dated[0];
+  $("roadmapNextDeadline").textContent=next?`${next.deadline}年`:"—";
+  $("roadmapNextDeadlineSub").textContent=next?next.title:"期限付き目標なし";
+  const attention=active.filter(x=>x.attention);
+  $("roadmapAttentionCount").textContent=`${attention.length}件`;
+  $("roadmapAttentionSub").textContent=attention.length?"積立ペースを確認":"順調です";
+  let focus=attention.sort((a,b)=>(b.neededMonthly-b.monthly)-(a.neededMonthly-a.monthly))[0];
+  if(!focus) focus=next || closest;
+  if(focus){
+    $("roadmapFocusTitle").textContent=focus.title;
+    $("roadmapFocusBadge").textContent=focus.attention?"要調整":`${focus.rate.toFixed(0)}%`;
+    $("roadmapFocusText").textContent=focus.attention?`目標日に間に合わせるには月${yen(focus.neededMonthly)}が目安です。現在より月${yen(Math.max(0,focus.neededMonthly-focus.monthly))}増やすと近づきます。`:`現在の進捗は${focus.rate.toFixed(1)}%。${focus.detail}${focus.deadline?`、目安は${focus.deadline}年です。`:"です。"}`;
+  } else {
+    $("roadmapFocusTitle").textContent="目標を登録してください"; $("roadmapFocusBadge").textContent="—"; $("roadmapFocusText").textContent="ライフ画面で期限と毎月積立を設定すると、優先度を自動判定します。";
+  }
+  const year=new Date().getFullYear();
+  const events=[];
+  state.lifeEvents.filter(e=>Number(e.year)>=year).forEach(e=>events.push({year:Number(e.year),title:`${e.person}・${e.title}`,sub:num(e.cost)?`予定費用 ${yen(e.cost)}`:"ライフイベント",type:"event"}));
+  state.savingsGoals.filter(g=>g.deadline).forEach(g=>events.push({year:Number(String(g.deadline).slice(0,4)),title:g.name,sub:`目標 ${yen(g.target)}`,type:"goal"}));
+  if(num(state.mortgage.endYear)>=year) events.push({year:num(state.mortgage.endYear),title:"住宅ローン完済予定",sub:`現在残高 ${yen(state.mortgage.balance)}`,type:"mortgage"});
+  const timeline=events.filter(x=>x.year>=year).sort((a,b)=>a.year-b.year).slice(0,6);
+  $("roadmapTimeline").innerHTML=timeline.length?timeline.map((x,i)=>`<div class="roadmap-timeline-item ${x.type}"><div class="roadmap-year">${x.year}</div><div class="roadmap-dot"></div><div class="roadmap-event"><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.sub)}</small></div></div>`).join(""):'<div class="empty">ライフイベントや目標日を登録すると、ここに時系列で表示されます。</div>';
+}
 function drawMortgageBalanceChart() {
   const canvas=$("mortgageBalanceChart"); if(!canvas) return;
   const ctx=canvas.getContext("2d"), dpr=window.devicePixelRatio||1, w=canvas.clientWidth||640, h=280;
@@ -682,6 +734,7 @@ function renderHome() {
   $("goalRemaining").textContent = financial >= goal ? "目標達成！" : `あと ${yen(Math.max(0, goal - financial))}`;
   $("goalProgress").style.width = `${rate}%`;
   renderLifeGoalDashboard();
+  renderLifeRoadmap();
   drawMortgageBalanceChart();
 
   drawAllocation();
@@ -1748,7 +1801,7 @@ $("saveBaseButton").addEventListener("click", () => {
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
 $("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta12-mortgage-progress-fix", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta13-life-roadmap", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第12弾 住宅ローン進捗修正版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第13弾 人生ロードマップ版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第12弾・住宅ローン進捗修正版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第13弾・人生ロードマップ版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -62,6 +62,22 @@
 
       <div class="section-heading goal-dashboard-heading"><div><p>LIFE GOALS</p><h2>家族の目標ダッシュボード</h2></div><span class="goal-dashboard-chip">あとどれくらい？</span></div>
       <div id="lifeGoalDashboard" class="life-goal-dashboard"></div>
+
+      <div class="section-heading roadmap-heading"><div><p>FAMILY ROADMAP</p><h2>これからの道のり</h2></div><span class="roadmap-chip">優先順位を見える化</span></div>
+      <div class="roadmap-summary-grid">
+        <article class="card roadmap-summary-card"><span>全体の進捗</span><strong id="roadmapOverallRate">0%</strong><small id="roadmapOverallSub">目標を登録すると表示</small></article>
+        <article class="card roadmap-summary-card"><span>達成に近い目標</span><strong id="roadmapClosestGoal">—</strong><small id="roadmapClosestSub">—</small></article>
+        <article class="card roadmap-summary-card"><span>次の期限</span><strong id="roadmapNextDeadline">—</strong><small id="roadmapNextDeadlineSub">—</small></article>
+        <article class="card roadmap-summary-card"><span>要確認</span><strong id="roadmapAttentionCount">0件</strong><small id="roadmapAttentionSub">順調です</small></article>
+      </div>
+      <article class="card roadmap-focus-card">
+        <div class="roadmap-focus-head"><div><span>今いちばん意識したいこと</span><strong id="roadmapFocusTitle">目標を登録してください</strong></div><b id="roadmapFocusBadge">—</b></div>
+        <p id="roadmapFocusText">ライフ画面で期限と毎月積立を設定すると、優先度を自動判定します。</p>
+      </article>
+      <article class="card roadmap-timeline-card">
+        <div class="roadmap-timeline-head"><div><strong>家族の予定タイムライン</strong><small>近い予定から6件</small></div></div>
+        <div id="roadmapTimeline" class="roadmap-timeline"></div>
+      </article>
 
       <h2>住宅ローン残高の見通し</h2>
       <article class="card chart-card mortgage-home-chart-card">
