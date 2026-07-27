@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第15弾・ライフプランタイムライン版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第16弾・未来シミュレーション版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -103,6 +103,25 @@
         <div class="life-plan-note">登録済みのライフイベント・積立目標・住宅ローンを1本の年表にまとめています。金融資産見込みは、現在額に毎月積立を足した単純計算で、運用益や生活費の増減は含みません。</div>
         <div id="lifePlanTimeline" class="life-plan-timeline"></div>
       </article>
+
+
+      <div class="section-heading future-sim-heading"><div><p>FUTURE SIMULATION</p><h2>未来シミュレーション</h2></div><span class="future-sim-chip">資産・ローン・教育資金</span></div>
+      <article class="card future-sim-control-card">
+        <div class="future-sim-controls">
+          <label>想定運用利回り<select id="futureReturnRate"><option value="0">0%</option><option value="3">3%</option><option value="5">5%</option></select></label>
+          <label>追加積立（月）<input id="futureMonthlyExtra" type="number" min="0" step="1000" placeholder="0"></label>
+          <label>表示期間<select id="futureHorizon"><option value="10">10年</option><option value="20">20年</option><option value="30">30年</option></select></label>
+        </div><button id="saveFutureSimulation" class="secondary">条件を保存</button>
+        <p>現在の金融資産、登録済み積立、予定支出、住宅ローンから概算します。将来を保証するものではありません。</p>
+      </article>
+      <div class="future-sim-summary-grid">
+        <article class="card"><span>10年後の金融資産</span><strong id="futureSimAsset10">—</strong><small id="futureSimAsset10Sub">概算</small></article>
+        <article class="card"><span>期間終了時の金融資産</span><strong id="futureSimAssetEnd">—</strong><small id="futureSimAssetEndSub">概算</small></article>
+        <article class="card"><span>資産目標の到達見込み</span><strong id="futureSimGoalYear">—</strong><small id="futureSimGoalSub">目標未設定</small></article>
+        <article class="card"><span>期間終了時のローン</span><strong id="futureSimLoanEnd">—</strong><small id="futureSimLoanEndSub">概算</small></article>
+      </div>
+      <article class="card chart-card future-sim-chart-card"><canvas id="futureSimulationChart" width="640" height="300" aria-label="将来資産と住宅ローン残高の推移"></canvas><div class="future-sim-legend"><span>● 金融資産</span><span>● ローン残高</span></div></article>
+      <article class="card future-education-card"><div class="future-education-head"><strong>教育資金の達成状況</strong><small>3人分を個別表示</small></div><div id="futureEducationRows"></div></article>
 
       <h2>住宅ローン残高の見通し</h2>
       <article class="card chart-card mortgage-home-chart-card">

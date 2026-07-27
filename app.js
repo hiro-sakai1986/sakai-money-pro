@@ -24,6 +24,7 @@ const defaultState = {
   cash: 0,
   loan: 0,
   assetGoal: 10000000,
+  futureSimulation: { annualReturn: 3, monthlyExtra: 0, horizon: 20 },
   dark: false,
   assets: [],
   plans: [],
@@ -153,6 +154,10 @@ function normalize(raw) {
   s.mortgage.originalBalance = num(s.mortgage.originalBalance) || num(s.mortgage.balance);
   if (s.mortgage.originalBalance < num(s.mortgage.balance)) s.mortgage.originalBalance = num(s.mortgage.balance);
   s.assetGoal = num(s.assetGoal) || defaultState.assetGoal;
+  s.futureSimulation = { ...defaultState.futureSimulation, ...(s.futureSimulation || {}) };
+  s.futureSimulation.annualReturn = num(s.futureSimulation.annualReturn);
+  s.futureSimulation.monthlyExtra = num(s.futureSimulation.monthlyExtra);
+  s.futureSimulation.horizon = [10,20,30].includes(Number(s.futureSimulation.horizon)) ? Number(s.futureSimulation.horizon) : 20;
   return s;
 }
 function hasMeaningfulData(raw) {
@@ -775,6 +780,49 @@ function renderLifePlanTimeline() {
       ${r.events.length?r.events.map(e=>`<article class="life-plan-event"><span>${e.icon}</span><div><strong>${escapeHtml(e.title)}</strong><small>${escapeHtml(e.sub)}</small></div></article>`).join(""):`<p class="life-plan-empty">この年の登録イベントはありません</p>`}
     </div>
   </div>`).join("");
+}
+
+
+function futureSimulationRows() {
+  const cfg=state.futureSimulation||defaultState.futureSimulation;
+  const years=Math.max(1,Number(cfg.horizon)||20), annualRate=num(cfg.annualReturn)/100, monthlyRate=annualRate/12;
+  const monthlyBase=state.plans.reduce((sum,p)=>sum+(p.method==="lump"?0:num(p.monthly)),0)+num(state.education.monthly)+state.savingsGoals.reduce((sum,g)=>sum+num(g.monthly),0)+num(cfg.monthlyExtra);
+  let assets=financialAssets(); const now=new Date(), rows=[];
+  const costsByMonth=new Map();
+  state.lifeEvents.forEach(e=>{ if(!num(e.cost)) return; const key=`${Number(e.year)}-06`; costsByMonth.set(key,(costsByMonth.get(key)||0)+num(e.cost)); });
+  state.savingsGoals.forEach(g=>{ if(!num(g.target)||!g.deadline) return; const key=String(g.deadline).slice(0,7); costsByMonth.set(key,(costsByMonth.get(key)||0)+num(g.target)); });
+  for(let m=0;m<=years*12;m++){
+    const d=new Date(now.getFullYear(),now.getMonth()+m,1);
+    if(m>0){ assets=assets*(1+monthlyRate)+monthlyBase; assets=Math.max(0,assets-(costsByMonth.get(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`)||0)); }
+    if(m===0||m%12===0){ const yr=d.getFullYear(); const mortgage=(mortgageMetrics().projection.points||[]).find(p=>p.year===yr)?.balance ?? 0; rows.push({year:yr,assets,mortgage}); }
+  }
+  return rows;
+}
+function drawFutureSimulationChart(){
+  const canvas=$("futureSimulationChart"); if(!canvas) return;
+  const rows=futureSimulationRows(), ctx=canvas.getContext("2d"), dpr=window.devicePixelRatio||1, w=canvas.clientWidth||640, h=300;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const styles=getComputedStyle(document.body), text=styles.getPropertyValue("--text").trim(), muted=styles.getPropertyValue("--muted").trim(), line=styles.getPropertyValue("--line").trim(), accent=styles.getPropertyValue("--accent").trim();
+  const pad={l:46,r:14,t:20,b:34}, max=Math.max(1,...rows.flatMap(r=>[r.assets,r.mortgage]));
+  ctx.font="10px system-ui"; ctx.strokeStyle=line; ctx.fillStyle=muted; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){ const y=pad.t+(h-pad.t-pad.b)*i/4; ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(w-pad.r,y); ctx.stroke(); ctx.fillText(`${Math.round(max*(1-i/4)/10000)}万`,2,y+3); }
+  const x=i=>pad.l+(w-pad.l-pad.r)*(rows.length===1?0:i/(rows.length-1)), y=v=>pad.t+(h-pad.t-pad.b)*(1-v/max);
+  const plot=(key,color)=>{ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();rows.forEach((r,i)=>i?ctx.lineTo(x(i),y(r[key])):ctx.moveTo(x(i),y(r[key])));ctx.stroke();};
+  plot("assets",accent); plot("mortgage",styles.getPropertyValue("--good").trim()||"#4f9478");
+  const step=Math.max(1,Math.ceil(rows.length/6)); rows.forEach((r,i)=>{if(i%step===0||i===rows.length-1){ctx.fillStyle=muted;ctx.fillText(String(r.year),x(i)-12,h-10);}});
+}
+function renderFutureSimulation(){
+  const rows=futureSimulationRows(); if(!rows.length||!$("futureSimAsset10")) return;
+  const current=rows[0], y10=rows[Math.min(10,rows.length-1)], last=rows[rows.length-1], goal=num(state.assetGoal);
+  const goalRow=rows.find(r=>goal&&r.assets>=goal);
+  $("futureSimAsset10").textContent=yen(y10.assets); $("futureSimAsset10Sub").textContent=`${y10.year}年の概算`;
+  $("futureSimAssetEnd").textContent=yen(last.assets); $("futureSimAssetEndSub").textContent=`${last.year}年・${state.futureSimulation.horizon}年後`;
+  $("futureSimGoalYear").textContent=goalRow?`${goalRow.year}年`:`未達見込み`; $("futureSimGoalSub").textContent=goal?`目標 ${yen(goal)}`:"資産目標を設定してください";
+  $("futureSimLoanEnd").textContent=yen(last.mortgage); $("futureSimLoanEndSub").textContent=`${last.year}年の概算残高`;
+  $("futureReturnRate").value=String(state.futureSimulation.annualReturn); $("futureMonthlyExtra").value=state.futureSimulation.monthlyExtra||""; $("futureHorizon").value=String(state.futureSimulation.horizon);
+  const e=state.education; const kids=[["長女",e.child1,e.target1],["次女",e.child2,e.target2],["三女",e.child3,e.target3]];
+  $("futureEducationRows").innerHTML=kids.map(([name,current,target])=>{const rate=target?Math.min(100,num(current)/num(target)*100):0;return `<div class="future-edu-row"><div><strong>${name}</strong><span>${yen(current)} / ${target?yen(target):"目標未設定"}</span></div><b>${rate.toFixed(0)}%</b><i><em style="width:${rate}%"></em></i><small>あと ${yen(Math.max(0,num(target)-num(current)))}</small></div>`}).join("");
+  drawFutureSimulationChart();
 }
 
 function drawMortgageBalanceChart() {
@@ -1530,7 +1578,7 @@ function clearGoalForm() {
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
+  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderLifeEvents();
   $("cashInput").value = state.cash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
@@ -1839,7 +1887,7 @@ document.querySelectorAll(".future-jump").forEach(button => button.addEventListe
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
-  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); renderHistoryDashboard(); }, 50);
+  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); renderFutureSimulation(); renderHistoryDashboard(); }, 50);
   if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
   if (b.dataset.screen === "budgetScreen") setTimeout(() => drawBudgetTrend(selectedBudgetMonth()), 50);
 }));
@@ -1894,9 +1942,11 @@ $("saveBaseButton").addEventListener("click", () => {
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
 });
 $("saveHistorySnapshot").addEventListener("click", () => { recordSnapshot(); saveState(); renderHistoryDashboard(); $("saveHistorySnapshot").textContent = "記録済み"; setTimeout(()=>$("saveHistorySnapshot").textContent="今月を記録",900); });
-$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
+$("themeButton").addEventListener("click", () => { state.dark = !state.dark; saveState(); renderTheme(); drawAllocation(); drawTrend(); renderFutureSimulation(); renderHistoryDashboard(); drawMortgageBalanceChart(); drawInvestmentAllocation(); drawBudgetTrend(selectedBudgetMonth()); });
+$("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
+["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta15-life-plan-timeline", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta16-future-simulation", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
