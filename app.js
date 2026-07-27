@@ -1774,6 +1774,8 @@ function renderTheme() { document.body.classList.toggle("dark", state.dark); $("
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
   renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderInsurance(); renderLifeEvents(); renderBankAccounts();
+  // 保険一覧の集計後に、ホームカードも同じ state から再同期する。
+  renderHomeInsuranceSummary();
   $("cashInput").value = state.unallocatedCash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
@@ -2087,7 +2089,11 @@ document.querySelectorAll(".future-jump").forEach(button => button.addEventListe
 document.querySelectorAll(".nav-button").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === b.dataset.screen));
   document.querySelectorAll(".nav-button").forEach(x => x.classList.toggle("active", x === b)); window.scrollTo({ top: 0, behavior: "smooth" });
-  if (b.dataset.screen === "homeScreen") setTimeout(() => { drawAllocation(); drawTrend(); renderFutureSimulation(); renderHistoryDashboard(); }, 50);
+  if (b.dataset.screen === "homeScreen") setTimeout(() => {
+    // ライフ画面で追加・編集した保険を、ホームへ戻るたび確実に再集計。
+    renderHomeInsuranceSummary();
+    drawAllocation(); drawTrend(); renderFutureSimulation(); renderHistoryDashboard();
+  }, 50);
   if (b.dataset.screen === "investScreen") setTimeout(drawInvestmentAllocation, 50);
   if (b.dataset.screen === "budgetScreen") setTimeout(() => drawBudgetTrend(selectedBudgetMonth()), 50);
 }));
@@ -2244,7 +2250,13 @@ window.addEventListener("resize", () => { if ($("homeScreen").classList.contains
 $("bankUpdatedAt").value = today(); $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
 $("planMethod").addEventListener("change", syncPlanMethodUI);
 syncPlanMethodUI();
-recordSnapshot(); saveState(); renderAll();
+recordSnapshot(); saveState(); 
+// iPhoneのホーム画面版へ戻った時も、保存済みの保険集計を再表示する。
+window.addEventListener("pageshow", () => { if (typeof renderHomeInsuranceSummary === "function") renderHomeInsuranceSummary(); });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && typeof renderHomeInsuranceSummary === "function") renderHomeInsuranceSummary();
+});
+renderAll();
 initializePersistentStorage();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") saveBeforeClosing();
