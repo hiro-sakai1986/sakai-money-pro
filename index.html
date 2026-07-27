@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第19弾 銀行口座登録方式対応</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第20弾 保険管理版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
@@ -16,7 +16,7 @@
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第19弾・銀行口座登録方式版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第20弾・保険管理版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -528,6 +528,43 @@
         <article class="card metric-card"><span>毎月積立合計</span><strong id="goalsMonthlyTotal">¥0</strong></article>
         <article class="card metric-card"><span>全体達成率</span><strong id="goalsRateTotal">0%</strong></article>
       </div>
+
+      <div class="section-heading insurance-heading"><div><p>INSURANCE</p><h2>保険管理</h2></div><span id="insuranceCountBadge" class="future-snapshot-chip">0件</span></div>
+      <div class="summary-grid insurance-summary-grid">
+        <article class="card metric-card"><span>月額保険料</span><strong id="insuranceMonthlyTotal">¥0</strong></article>
+        <article class="card metric-card"><span>年間保険料</span><strong id="insuranceAnnualTotal">¥0</strong></article>
+        <article class="card metric-card"><span>保険の資産価値</span><strong id="insuranceAssetTotal">¥0</strong><small>資産に含める契約のみ</small></article>
+        <article class="card metric-card"><span>保障額合計</span><strong id="insuranceCoverageTotal">¥0</strong></article>
+      </div>
+      <article class="card insurance-next-card"><span>次の更新予定</span><strong id="insuranceNextUpdate">更新日の登録なし</strong></article>
+      <details id="insuranceEditor" class="editor-details">
+        <summary>＋ 保険を追加・編集する</summary>
+        <article class="card form-card insurance-form-card">
+          <input id="insuranceId" type="hidden">
+          <div class="form-grid">
+            <label>名義<select id="insuranceOwner"><option>本人</option><option>夫</option><option>長女</option><option>次女</option><option>三女</option><option>家族</option></select></label>
+            <label>種類<select id="insuranceCategory"><option>生命保険</option><option>医療保険</option><option>がん保険</option><option>学資保険</option><option>個人年金</option><option>火災保険</option><option>自動車保険</option><option>その他</option></select></label>
+            <label>保険会社<input id="insuranceCompany" placeholder="例：〇〇生命"></label>
+            <label>保険名<input id="insuranceName" placeholder="例：長女 学資保険"></label>
+            <label>被保険者<input id="insuranceInsured" placeholder="例：長女"></label>
+            <label>契約者<input id="insurancePolicyholder" placeholder="例：ヒロ"></label>
+            <label>支払頻度<select id="insuranceFrequency"><option value="monthly">毎月</option><option value="annual">年払い</option></select></label>
+            <label>保険料（円）<input id="insurancePremium" type="number" min="0" inputmode="numeric"></label>
+            <label>保障額（円）<input id="insuranceCoverage" type="number" min="0" inputmode="numeric"></label>
+            <label>現在の解約返戻金・積立額（円）<input id="insuranceCurrentValue" type="number" min="0" inputmode="numeric"></label>
+            <label>満期受取予定額（円）<input id="insuranceMaturityAmount" type="number" min="0" inputmode="numeric"></label>
+            <label>契約開始日<input id="insuranceStartDate" type="date"></label>
+            <label>次回更新日<input id="insuranceRenewalDate" type="date"></label>
+            <label>満期・受取予定日<input id="insuranceMaturityDate" type="date"></label>
+            <label>受取人<input id="insuranceBeneficiary" placeholder="任意"></label>
+            <label class="full checkbox-label"><input id="insuranceIncludeAssets" type="checkbox"> 現在の解約返戻金・積立額を金融資産へ含める</label>
+            <label class="full">メモ<textarea id="insuranceMemo" rows="2" placeholder="保障内容・証券番号の末尾など（重要情報は入れすぎない）"></textarea></label>
+          </div>
+          <p class="form-note">学資保険を教育資金にも入力している場合、資産へ含めると二重計上になることがあります。</p>
+          <div class="button-row"><button class="primary" id="saveInsuranceButton">保険を追加</button><button class="secondary hidden" id="cancelInsuranceEdit">編集を取消</button></div>
+        </article>
+      </details>
+      <div id="insuranceList" class="stack insurance-list"></div>
 
       <h2>家族のライフイベント</h2>
       <article class="card form-card">
