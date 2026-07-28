@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第23弾 資産ダッシュボード完成版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第24弾 資産成長グラフ版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=23">
+  <link rel="stylesheet" href="./style.css?v=24">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第23弾・資産ダッシュボード完成版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第24弾・資産成長グラフ版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -99,6 +99,20 @@
         </div>
         <div class="asset-overview-insight"><span>今月の変化</span><strong id="assetOverviewChange">記録をためると表示</strong><small id="assetOverviewChangeSub">毎月の記録から前月比を計算します</small></div>
       </article>
+      <div class="section-heading wealth-growth-heading"><div><p>WEALTH GROWTH</p><h2>資産の成長</h2></div><div class="wealth-range" role="group" aria-label="表示期間"><button type="button" class="wealth-range-button active" data-months="12">1年</button><button type="button" class="wealth-range-button" data-months="36">3年</button><button type="button" class="wealth-range-button" data-months="60">5年</button></div></div>
+      <article class="card wealth-growth-card">
+        <div class="wealth-growth-head"><div><span>純資産の推移</span><strong id="wealthGrowthCurrent">¥0</strong><small id="wealthGrowthLatestMonth">今月時点</small></div><span id="wealthGrowthBadge" class="wealth-growth-badge">記録中</span></div>
+        <canvas id="wealthGrowthChart" aria-label="純資産推移グラフ"></canvas>
+        <p id="wealthGrowthNote" class="wealth-growth-note">毎月の記録が増えるとグラフがつながります。</p>
+        <div class="wealth-growth-stats">
+          <div><span>前月比</span><strong id="wealthGrowthMonth">—</strong></div>
+          <div><span>今年の増減</span><strong id="wealthGrowthYear">—</strong></div>
+          <div><span>過去最高</span><strong id="wealthGrowthHighest">¥0</strong><small id="wealthGrowthHighestMonth">今月</small></div>
+          <div><span>選択期間の増減</span><strong id="wealthGrowthPeriod">—</strong></div>
+        </div>
+        <button type="button" id="wealthGrowthSave" class="secondary wealth-growth-save">今月の資産を記録</button>
+      </article>
+
       <div class="dashboard-grid">
         <article class="card dashboard-card"><span>前月比</span><strong id="monthChange">—</strong><small id="monthChangeSub">記録をためると表示</small></article>
         <article class="card dashboard-card"><span>今年の増減</span><strong id="yearChange">—</strong><small id="yearChangeSub">年初との比較</small></article>
@@ -677,6 +691,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=23"></script>
+  <script src="./app.js?v=24"></script>
 </body>
 </html>
