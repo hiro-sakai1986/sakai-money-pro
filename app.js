@@ -917,6 +917,7 @@ function renderHome() {
   renderBankAccountSummary();
   renderHomeInsuranceSummary();
   renderAssetOverview();
+  renderWealthGrowth();
   $("investmentSummary").textContent = yen(inv.market);
   $("monthlyBalance").textContent = yen(budget.income - budget.expense);
   $("monthlyBalance").className = budget.income - budget.expense < 0 ? "negative" : "positive";
@@ -988,6 +989,55 @@ function renderAssetOverview() {
   const current = snaps.at(-1), previous = snaps.length > 1 ? snaps.at(-2) : null;
   if ($("assetOverviewChange")) $("assetOverviewChange").textContent = previous ? `${num(current?.financial)-num(previous.financial)>=0?"＋":"−"}${yen(Math.abs(num(current?.financial)-num(previous.financial)))}` : "記録をためると表示";
   if ($("assetOverviewChangeSub")) $("assetOverviewChangeSub").textContent = previous ? `${previous.month}から${current.month}の金融資産の変化` : "毎月の記録から前月比を計算します";
+}
+
+
+let wealthGrowthMonths = 12;
+function renderWealthGrowth() {
+  const canvas = $("wealthGrowthChart");
+  if (!canvas) return;
+  recordSnapshot();
+  const all = [...(state.snapshots || [])].sort((x,y)=>String(x.month).localeCompare(String(y.month)));
+  const data = all.slice(-wealthGrowthMonths);
+  const currentFinancial = financialAssets();
+  const currentNet = currentFinancial - num(state.loan);
+  const latest = data.at(-1);
+  const previous = data.length > 1 ? data.at(-2) : null;
+  const nowYear = String(new Date().getFullYear());
+  const firstThisYear = all.find(x => String(x.month).startsWith(nowYear));
+  const highest = all.reduce((best,x)=>!best || num(x.netWorth)>num(best.netWorth) ? x : best, null);
+  const first = data[0];
+  $("wealthGrowthCurrent").textContent = yen(currentNet);
+  $("wealthGrowthLatestMonth").textContent = latest ? `${latest.month.replace("-","年")}月時点` : "今月時点";
+  $("wealthGrowthMonth").textContent = previous ? signedYen(currentNet-num(previous.netWorth)) : "—";
+  $("wealthGrowthYear").textContent = firstThisYear ? signedYen(currentNet-num(firstThisYear.netWorth)) : "—";
+  $("wealthGrowthHighest").textContent = yen(highest ? num(highest.netWorth) : currentNet);
+  $("wealthGrowthHighestMonth").textContent = highest ? `${highest.month.replace("-","年")}月` : "今月";
+  $("wealthGrowthPeriod").textContent = data.length > 1 ? signedYen(currentNet-num(first.netWorth)) : "—";
+  const isHighest = !highest || currentNet >= num(highest.netWorth);
+  $("wealthGrowthBadge").textContent = isHighest && data.length > 1 ? "過去最高✨" : `${data.length}か月記録`;
+  $("wealthGrowthNote").textContent = data.length < 2 ? "今月分を記録しました。来月以降、資産の増減が線でつながります。" : `直近${data.length}か月の純資産推移です。`;
+  drawWealthGrowthChart(data);
+}
+function drawWealthGrowthChart(data) {
+  const canvas=$("wealthGrowthChart"), ctx=canvas.getContext("2d"), dpr=window.devicePixelRatio||1;
+  const w=canvas.clientWidth||640, h=270;
+  canvas.width=w*dpr; canvas.height=h*dpr; ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  if (!data.length) return;
+  const styles=getComputedStyle(document.body), accent=styles.getPropertyValue("--accent").trim(), muted=styles.getPropertyValue("--muted").trim(), grid=styles.getPropertyValue("--line").trim();
+  const values=data.map(x=>num(x.netWorth));
+  let min=Math.min(...values), max=Math.max(...values);
+  const margin=Math.max(100000,(max-min)*.15,Math.abs(max)*.025);
+  min-=margin; max+=margin;
+  const pad={left:58,right:18,top:24,bottom:40}, range=max-min||1;
+  const x=i=>pad.left+(data.length===1?(w-pad.left-pad.right)/2:i*(w-pad.left-pad.right)/(data.length-1));
+  const y=v=>pad.top+(max-v)/range*(h-pad.top-pad.bottom);
+  ctx.font="10px sans-serif"; ctx.fillStyle=muted; ctx.textAlign="right"; ctx.strokeStyle=grid; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const yy=pad.top+i*(h-pad.top-pad.bottom)/4,val=max-i*range/4;ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(w-pad.right,yy);ctx.stroke();ctx.fillText(`${Math.round(val/10000)}万`,pad.left-7,yy+3)}
+  const grad=ctx.createLinearGradient(0,pad.top,0,h-pad.bottom); grad.addColorStop(0,"rgba(139,79,232,.28)"); grad.addColorStop(1,"rgba(139,79,232,0)");
+  ctx.beginPath(); data.forEach((d,i)=>i?ctx.lineTo(x(i),y(values[i])):ctx.moveTo(x(i),y(values[i]))); ctx.lineTo(x(data.length-1),h-pad.bottom); ctx.lineTo(x(0),h-pad.bottom); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+  ctx.beginPath(); data.forEach((d,i)=>i?ctx.lineTo(x(i),y(values[i])):ctx.moveTo(x(i),y(values[i]))); ctx.strokeStyle=accent; ctx.lineWidth=3; ctx.lineJoin="round"; ctx.lineCap="round"; ctx.stroke();
+  data.forEach((d,i)=>{ctx.beginPath();ctx.arc(x(i),y(values[i]),4,0,Math.PI*2);ctx.fillStyle=accent;ctx.fill(); if(data.length<=12 || i%Math.ceil(data.length/10)===0 || i===data.length-1){ctx.fillStyle=muted;ctx.textAlign="center";ctx.font="10px sans-serif";ctx.fillText(d.month.slice(5)+"月",x(i),h-15)}});
 }
 
 function renderHomeInsuranceSummary() {
@@ -2284,6 +2334,17 @@ $("planMethod").addEventListener("change", syncPlanMethodUI);
 syncPlanMethodUI();
 recordSnapshot(); saveState(); 
 // iPhoneのホーム画面版へ戻った時も、保存済みの保険集計を再表示する。
+
+document.querySelectorAll(".wealth-range-button").forEach(button => button.addEventListener("click", () => {
+  wealthGrowthMonths = Number(button.dataset.months) || 12;
+  document.querySelectorAll(".wealth-range-button").forEach(x=>x.classList.toggle("active",x===button));
+  renderWealthGrowth();
+}));
+if ($("wealthGrowthSave")) $("wealthGrowthSave").addEventListener("click", () => {
+  recordSnapshot(); saveState(); renderWealthGrowth();
+  const button=$("wealthGrowthSave"); button.textContent="記録しました"; setTimeout(()=>button.textContent="今月の資産を記録",900);
+});
+
 window.addEventListener("pageshow", () => { if (typeof renderHomeInsuranceSummary === "function") renderHomeInsuranceSummary(); });
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && typeof renderHomeInsuranceSummary === "function") renderHomeInsuranceSummary();
