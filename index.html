@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第24弾 資産成長グラフ版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第25弾 保険分類・将来受取版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=24">
+  <link rel="stylesheet" href="./style.css?v=25">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第24弾・資産成長グラフ版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第25弾・保険分類・将来受取版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -581,7 +581,20 @@
         <article class="card metric-card"><span>保険の資産価値</span><strong id="insuranceAssetTotal">¥0</strong><small>資産に含める契約のみ</small></article>
         <article class="card metric-card"><span>保障額合計</span><strong id="insuranceCoverageTotal">¥0</strong></article>
       </div>
-      <article class="card insurance-next-card"><span>次の更新予定</span><strong id="insuranceNextUpdate">更新日の登録なし</strong></article>
+      <div class="insurance-classification-grid">
+        <article class="card insurance-class-card protection"><span>保障のための保険</span><strong id="insuranceProtectionCount">0件</strong><small id="insuranceProtectionPremium">月 ¥0</small></article>
+        <article class="card insurance-class-card savings"><span>満期・受取がある保険</span><strong id="insuranceSavingsCount">0件</strong><small id="insuranceFutureReceiptTotal">予定受取 ¥0</small></article>
+        <article class="card insurance-class-card asset"><span>積立型保険の現在価値</span><strong id="insuranceSavingsAsset">¥0</strong><small>資産計上する契約のみ</small></article>
+      </div>
+      <div class="insurance-next-grid">
+        <article class="card insurance-next-card"><span>次の払込満了</span><strong id="insuranceNextPaymentEnd">登録なし</strong></article>
+        <article class="card insurance-next-card"><span>次の受取予定</span><strong id="insuranceNextReceipt">登録なし</strong></article>
+        <article class="card insurance-next-card"><span>次の更新予定</span><strong id="insuranceNextUpdate">更新日の登録なし</strong></article>
+      </div>
+      <section class="insurance-cashflow-section">
+        <div class="subsection-title"><div><p>FUTURE RECEIPTS</p><h3>将来の受取予定</h3></div></div>
+        <div id="insuranceReceiptList" class="stack"></div>
+      </section>
       <details id="insuranceEditor" class="editor-details">
         <summary>＋ 保険を追加・編集する</summary>
         <article class="card form-card insurance-form-card">
@@ -599,13 +612,18 @@
             <label>現在の解約返戻金・積立額（円）<input id="insuranceCurrentValue" type="number" min="0" inputmode="numeric"></label>
             <label>満期受取予定額（円）<input id="insuranceMaturityAmount" type="number" min="0" inputmode="numeric"></label>
             <label>契約開始日<input id="insuranceStartDate" type="date"></label>
+            <label>払込満了日<input id="insurancePaymentEndDate" type="date"></label>
             <label>次回更新日<input id="insuranceRenewalDate" type="date"></label>
-            <label>満期・受取予定日<input id="insuranceMaturityDate" type="date"></label>
+            <label>満期日<input id="insuranceMaturityDate" type="date"></label>
+            <label>受取方法<select id="insurancePayoutType"><option value="none">受取予定なし</option><option value="lump">一括受取</option><option value="annual">毎年受取</option><option value="monthly">毎月受取</option></select></label>
+            <label>受取開始日<input id="insurancePayoutStartDate" type="date"></label>
+            <label>1回の受取額（円）<input id="insurancePayoutAmount" type="number" min="0" inputmode="numeric"></label>
+            <label>受取回数<input id="insurancePayoutCount" type="number" min="0" inputmode="numeric" placeholder="一括なら1"></label>
             <label>受取人<input id="insuranceBeneficiary" placeholder="任意"></label>
             <label class="full checkbox-label"><input id="insuranceIncludeAssets" type="checkbox"> 現在の解約返戻金・積立額を金融資産へ含める</label>
             <label class="full">メモ<textarea id="insuranceMemo" rows="2" placeholder="保障内容・証券番号の末尾など（重要情報は入れすぎない）"></textarea></label>
           </div>
-          <p class="form-note">学資保険を教育資金にも入力している場合、資産へ含めると二重計上になることがあります。</p>
+          <p class="form-note">学資保険・個人年金は「払込満了」と「将来の受取」を別々に登録できます。教育資金にも同じ満期金を入力している場合は二重計上に注意してください。</p>
           <div class="button-row"><button class="primary" id="saveInsuranceButton">保険を追加</button><button class="secondary hidden" id="cancelInsuranceEdit">編集を取消</button></div>
         </article>
       </details>
@@ -691,6 +709,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=24"></script>
+  <script src="./app.js?v=25"></script>
 </body>
 </html>

@@ -173,8 +173,13 @@ function normalize(raw) {
     currentValue: num(item?.currentValue),
     maturityAmount: num(item?.maturityAmount),
     startDate: String(item?.startDate || ""),
+    paymentEndDate: String(item?.paymentEndDate || ""),
     renewalDate: String(item?.renewalDate || ""),
     maturityDate: String(item?.maturityDate || ""),
+    payoutType: ["lump","annual","monthly"].includes(item?.payoutType) ? item.payoutType : (num(item?.maturityAmount) && item?.maturityDate ? "lump" : "none"),
+    payoutStartDate: String(item?.payoutStartDate || item?.maturityDate || ""),
+    payoutAmount: num(item?.payoutAmount || item?.maturityAmount),
+    payoutCount: Math.max(0, Math.floor(num(item?.payoutCount) || (num(item?.maturityAmount) ? 1 : 0))),
     beneficiary: String(item?.beneficiary || "").trim(),
     includeInAssets: Boolean(item?.includeInAssets),
     memo: String(item?.memo || "").trim()
@@ -786,6 +791,8 @@ function renderLifeRoadmap() {
   const events=[];
   state.lifeEvents.filter(e=>Number(e.year)>=year).forEach(e=>events.push({year:Number(e.year),title:`${e.person}・${e.title}`,sub:num(e.cost)?`予定費用 ${yen(e.cost)}`:"ライフイベント",type:"event"}));
   state.savingsGoals.filter(g=>g.deadline).forEach(g=>events.push({year:Number(String(g.deadline).slice(0,4)),title:g.name,sub:`目標 ${yen(g.target)}`,type:"goal"}));
+  (state.insurancePolicies||[]).filter(x=>x.paymentEndDate).forEach(x=>events.push({year:Number(x.paymentEndDate.slice(0,4)),title:`${x.name||x.company} 払込満了`,sub:x.paymentEndDate,type:"insurance"}));
+  allInsuranceReceiptEvents().forEach(x=>events.push({year:Number(x.date.slice(0,4)),title:`${x.name} 受取`,sub:`＋${yen(x.amount)}`,type:"insurance"}));
   if(num(state.mortgage.endYear)>=year) events.push({year:num(state.mortgage.endYear),title:"住宅ローン完済予定",sub:`現在残高 ${yen(state.mortgage.balance)}`,type:"mortgage"});
   const timeline=events.filter(x=>x.year>=year).sort((a,b)=>a.year-b.year).slice(0,6);
   $("roadmapTimeline").innerHTML=timeline.length?timeline.map((x,i)=>`<div class="roadmap-timeline-item ${x.type}"><div class="roadmap-year">${x.year}</div><div class="roadmap-dot"></div><div class="roadmap-event"><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.sub)}</small></div></div>`).join(""):'<div class="empty">ライフイベントや目標日を登録すると、ここに時系列で表示されます。</div>';
@@ -802,6 +809,8 @@ function lifeTimelineProjection() {
   const years = new Set([currentYear]);
   state.lifeEvents.forEach(e=>{ const y=Number(e.year); if(y>=currentYear) years.add(y); });
   state.savingsGoals.forEach(g=>{ const y=Number(String(g.deadline||"").slice(0,4)); if(y>=currentYear) years.add(y); });
+  (state.insurancePolicies||[]).forEach(x=>{ const y=Number(String(x.paymentEndDate||"").slice(0,4)); if(y>=currentYear) years.add(y); });
+  allInsuranceReceiptEvents().forEach(x=>{ const y=Number(x.date.slice(0,4)); if(y>=currentYear) years.add(y); });
   if(num(state.mortgage.endYear)>=currentYear) years.add(num(state.mortgage.endYear));
   [currentYear+1,currentYear+3,currentYear+5,currentYear+10].forEach(y=>years.add(y));
   const mortgageAt = year => {
@@ -819,10 +828,13 @@ function lifeTimelineProjection() {
     const events=[];
     state.lifeEvents.filter(e=>Number(e.year)===year).forEach(e=>events.push({icon:"🎓",title:`${e.person}・${e.title}`,sub:num(e.cost)?`予定費用 ${yen(e.cost)}`:"登録済みライフイベント"}));
     state.savingsGoals.filter(g=>Number(String(g.deadline||"").slice(0,4))===year).forEach(g=>events.push({icon:({"車":"🚗","旅行":"🌴","住宅修繕":"🔧","教育":"🎓"}[g.category]||"🎯"),title:g.name,sub:`目標 ${yen(g.target)}`}));
+    (state.insurancePolicies||[]).filter(x=>Number(String(x.paymentEndDate||"").slice(0,4))===year).forEach(x=>events.push({icon:"✅",title:`${x.name||x.company} 払込満了`,sub:x.paymentEndDate}));
+    allInsuranceReceiptEvents().filter(x=>Number(x.date.slice(0,4))===year).forEach(x=>events.push({icon:"💰",title:`${x.name} 受取`,sub:`＋${yen(x.amount)}・${x.date}`}));
     if(num(state.mortgage.endYear)===year) events.push({icon:"🏠",title:"住宅ローン完済予定",sub:"登録された完済予定年"});
     if(year===currentYear) events.unshift({icon:"●",title:"現在",sub:`金融資産 ${yen(currentFinancial)}`});
     const yearsAhead=year-currentYear;
-    return {year,events,financial:currentFinancial+annualSaving*yearsAhead,mortgage:mortgageAt(year),yearsAhead};
+    const insuranceIncome=allInsuranceReceiptEvents().filter(x=>Number(x.date.slice(0,4))<=year && Number(x.date.slice(0,4))>=currentYear).reduce((s,x)=>s+x.amount,0);
+    return {year,events,financial:currentFinancial+annualSaving*yearsAhead+insuranceIncome,mortgage:mortgageAt(year),yearsAhead};
   });
 }
 function renderLifePlanTimeline() {
@@ -853,12 +865,13 @@ function futureSimulationRows() {
   const years=Math.max(1,Number(cfg.horizon)||20), annualRate=num(cfg.annualReturn)/100, monthlyRate=annualRate/12;
   const monthlyBase=state.plans.reduce((sum,p)=>sum+(p.method==="lump"?0:num(p.monthly)),0)+num(state.education.monthly)+state.savingsGoals.reduce((sum,g)=>sum+num(g.monthly),0)+num(cfg.monthlyExtra);
   let assets=financialAssets(); const now=new Date(), rows=[];
-  const costsByMonth=new Map();
+  const costsByMonth=new Map(), incomesByMonth=new Map();
+  allInsuranceReceiptEvents().forEach(x=>{ const key=x.date.slice(0,7); incomesByMonth.set(key,(incomesByMonth.get(key)||0)+x.amount); });
   state.lifeEvents.forEach(e=>{ if(!num(e.cost)) return; const key=`${Number(e.year)}-06`; costsByMonth.set(key,(costsByMonth.get(key)||0)+num(e.cost)); });
   state.savingsGoals.forEach(g=>{ if(!num(g.target)||!g.deadline) return; const key=String(g.deadline).slice(0,7); costsByMonth.set(key,(costsByMonth.get(key)||0)+num(g.target)); });
   for(let m=0;m<=years*12;m++){
     const d=new Date(now.getFullYear(),now.getMonth()+m,1);
-    if(m>0){ assets=assets*(1+monthlyRate)+monthlyBase; assets=Math.max(0,assets-(costsByMonth.get(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`)||0)); }
+    if(m>0){ const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; assets=assets*(1+monthlyRate)+monthlyBase+(incomesByMonth.get(key)||0); assets=Math.max(0,assets-(costsByMonth.get(key)||0)); }
     if(m===0||m%12===0){ const yr=d.getFullYear(); const mortgage=(mortgageMetrics().projection.points||[]).find(p=>p.year===yr)?.balance ?? 0; rows.push({year:yr,assets,mortgage}); }
   }
   return rows;
@@ -1826,11 +1839,30 @@ function clearGoalForm() {
 }
 function insuranceAnnualPremium(item) { return item.paymentFrequency === "annual" ? num(item.premium) : num(item.premium) * 12; }
 function insuranceMonthlyPremium(item) { return item.paymentFrequency === "annual" ? num(item.premium) / 12 : num(item.premium); }
+function isInsuranceSavingsType(item) { return /学資|個人年金|養老|終身/.test(String(item.category||"")+" "+String(item.name||"")) || item.payoutType !== "none" || num(item.maturityAmount)>0; }
+function insurancePlannedReceiptTotal(item) {
+  const amount=num(item.payoutAmount || item.maturityAmount);
+  const count=item.payoutType==="lump" ? (amount?1:0) : Math.max(0,Math.floor(num(item.payoutCount)));
+  return amount*count;
+}
+function addMonthsToDate(dateText, months) {
+  const d=new Date(`${dateText}T00:00:00`); if(Number.isNaN(d.getTime())) return "";
+  d.setMonth(d.getMonth()+months); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function insuranceReceiptEvents(item) {
+  const start=item.payoutStartDate || item.maturityDate; const amount=num(item.payoutAmount || item.maturityAmount);
+  if(!start || !amount || item.payoutType==="none") return [];
+  const count=item.payoutType==="lump" ? 1 : Math.max(0,Math.floor(num(item.payoutCount)));
+  const step=item.payoutType==="monthly" ? 1 : 12;
+  return Array.from({length:Math.min(count,600)},(_,i)=>({date:addMonthsToDate(start,i*step),amount,policyId:item.id,name:item.name||item.company||"保険受取",owner:item.owner,type:item.payoutType})).filter(x=>x.date);
+}
+function allInsuranceReceiptEvents() { return (state.insurancePolicies||[]).flatMap(insuranceReceiptEvents).sort((a,b)=>a.date.localeCompare(b.date)); }
+function insuranceReceiptByYear(year) { return allInsuranceReceiptEvents().filter(x=>Number(x.date.slice(0,4))===Number(year)).reduce((s,x)=>s+x.amount,0); }
 function clearInsuranceForm() {
   $("insuranceId").value="";
   $("insuranceOwner").value="本人"; $("insuranceCategory").value="生命保険"; $("insuranceFrequency").value="monthly";
-  ["insuranceCompany","insuranceName","insuranceInsured","insurancePolicyholder","insurancePremium","insuranceCoverage","insuranceCurrentValue","insuranceMaturityAmount","insuranceStartDate","insuranceRenewalDate","insuranceMaturityDate","insuranceBeneficiary","insuranceMemo"].forEach(id=>$(id).value="");
-  $("insuranceIncludeAssets").checked=false;
+  ["insuranceCompany","insuranceName","insuranceInsured","insurancePolicyholder","insurancePremium","insuranceCoverage","insuranceCurrentValue","insuranceMaturityAmount","insuranceStartDate","insurancePaymentEndDate","insuranceRenewalDate","insuranceMaturityDate","insurancePayoutStartDate","insurancePayoutAmount","insurancePayoutCount","insuranceBeneficiary","insuranceMemo"].forEach(id=>$(id).value="");
+  $("insurancePayoutType").value="none"; $("insuranceIncludeAssets").checked=false;
   $("saveInsuranceButton").textContent="保険を追加"; $("cancelInsuranceEdit").classList.add("hidden");
 }
 function renderInsurance() {
@@ -1839,18 +1871,35 @@ function renderInsurance() {
   const annual=policies.reduce((sum,item)=>sum+insuranceAnnualPremium(item),0);
   const assets=insuranceAssetTotal();
   const coverage=policies.reduce((sum,item)=>sum+num(item.coverageAmount),0);
+  const savingsPolicies=policies.filter(isInsuranceSavingsType);
+  const protectionPolicies=policies.filter(item=>!isInsuranceSavingsType(item));
+  const futureTotal=savingsPolicies.reduce((sum,item)=>sum+insurancePlannedReceiptTotal(item),0);
   $("insuranceMonthlyTotal").textContent=yen(monthly);
   $("insuranceAnnualTotal").textContent=yen(annual);
   $("insuranceAssetTotal").textContent=yen(assets);
   $("insuranceCoverageTotal").textContent=yen(coverage);
   $("insuranceCountBadge").textContent=`${policies.length}件`;
-  const upcoming=policies.filter(item=>item.renewalDate).sort((x,y)=>String(x.renewalDate).localeCompare(String(y.renewalDate)))[0];
+  if($("insuranceProtectionCount")) $("insuranceProtectionCount").textContent=`${protectionPolicies.length}件`;
+  if($("insuranceProtectionPremium")) $("insuranceProtectionPremium").textContent=`月 ${yen(protectionPolicies.reduce((s,x)=>s+insuranceMonthlyPremium(x),0))}`;
+  if($("insuranceSavingsCount")) $("insuranceSavingsCount").textContent=`${savingsPolicies.length}件`;
+  if($("insuranceFutureReceiptTotal")) $("insuranceFutureReceiptTotal").textContent=`予定受取 ${yen(futureTotal)}`;
+  if($("insuranceSavingsAsset")) $("insuranceSavingsAsset").textContent=yen(savingsPolicies.filter(x=>x.includeInAssets).reduce((s,x)=>s+num(x.currentValue),0));
+  const upcoming=policies.filter(item=>item.renewalDate && item.renewalDate>=today()).sort((x,y)=>String(x.renewalDate).localeCompare(String(y.renewalDate)))[0];
   $("insuranceNextUpdate").textContent=upcoming ? `${upcoming.renewalDate} ${upcoming.company || upcoming.name}` : "更新日の登録なし";
+  const paymentEnd=policies.filter(x=>x.paymentEndDate && x.paymentEndDate>=today()).sort((a,b)=>a.paymentEndDate.localeCompare(b.paymentEndDate))[0];
+  if($("insuranceNextPaymentEnd")) $("insuranceNextPaymentEnd").textContent=paymentEnd?`${paymentEnd.paymentEndDate} ${paymentEnd.name||paymentEnd.company}`:"登録なし";
+  const receipts=allInsuranceReceiptEvents().filter(x=>x.date>=today());
+  const nextReceipt=receipts[0];
+  if($("insuranceNextReceipt")) $("insuranceNextReceipt").textContent=nextReceipt?`${nextReceipt.date} ${yen(nextReceipt.amount)}・${nextReceipt.name}`:"登録なし";
+  if($("insuranceReceiptList")) $("insuranceReceiptList").innerHTML=receipts.length?receipts.slice(0,24).map(x=>`<article class="card receipt-card"><div><strong>${escapeHtml(x.date)}</strong><small>${escapeHtml(x.owner)}・${escapeHtml(x.name)}</small></div><b>＋${yen(x.amount)}</b></article>`).join(""):'<div class="empty">学資保険や個人年金の受取開始日・金額を登録すると表示されます。</div>';
   $("insuranceList").innerHTML=policies.length ? policies.map(item=>{
     const premiumLabel=item.paymentFrequency==="annual"?`年 ${yen(item.premium)}`:`月 ${yen(item.premium)}`;
     const assetLabel=item.includeInAssets?`資産計上 ${yen(item.currentValue)}`:"資産計上なし";
-    return `<article class="card insurance-card"><div class="item-head"><div><span class="insurance-category-chip">${escapeHtml(item.category)}</span><div class="item-title">${escapeHtml(item.company || "保険会社未入力")} ${escapeHtml(item.name)}</div><div class="item-sub">名義 ${escapeHtml(item.owner)}${item.insuredPerson?`・被保険者 ${escapeHtml(item.insuredPerson)}`:""}</div></div><div class="item-value">${premiumLabel}</div></div><div class="insurance-card-grid"><span>保障 ${yen(item.coverageAmount)}</span><span>${assetLabel}</span><span>満期 ${item.maturityDate?escapeHtml(item.maturityDate):"未設定"}</span><span>更新 ${item.renewalDate?escapeHtml(item.renewalDate):"未設定"}</span></div>${item.memo?`<p class="insurance-memo">${escapeHtml(item.memo)}</p>`:""}<div class="item-actions"><button class="edit-button" data-edit-insurance="${item.id}">編集</button><button class="delete-button" data-delete-insurance="${item.id}">削除</button></div></article>`;
-  }).join(""):'<div class="empty">学資保険・個人年金・生命保険・火災保険・自動車保険などを登録できます。</div>';
+    const group=isInsuranceSavingsType(item)?"満期・受取あり":"保障";
+    const payoutTotal=insurancePlannedReceiptTotal(item);
+    const payoutLabel=payoutTotal?`受取予定 ${yen(payoutTotal)}${item.payoutStartDate?`・${escapeHtml(item.payoutStartDate)}〜`:""}`:"受取予定なし";
+    return `<article class="card insurance-card"><div class="item-head"><div><span class="insurance-category-chip">${escapeHtml(group)}｜${escapeHtml(item.category)}</span><div class="item-title">${escapeHtml(item.company || "保険会社未入力")} ${escapeHtml(item.name)}</div><div class="item-sub">名義 ${escapeHtml(item.owner)}${item.insuredPerson?`・被保険者 ${escapeHtml(item.insuredPerson)}`:""}</div></div><div class="item-value">${premiumLabel}</div></div><div class="insurance-card-grid"><span>保障 ${yen(item.coverageAmount)}</span><span>${assetLabel}</span><span>払込満了 ${item.paymentEndDate?escapeHtml(item.paymentEndDate):"未設定"}</span><span>満期 ${item.maturityDate?escapeHtml(item.maturityDate):"未設定"}</span><span class="full">${payoutLabel}</span><span>更新 ${item.renewalDate?escapeHtml(item.renewalDate):"未設定"}</span></div>${item.memo?`<p class="insurance-memo">${escapeHtml(item.memo)}</p>`:""}<div class="item-actions"><button class="edit-button" data-edit-insurance="${item.id}">編集</button><button class="delete-button" data-delete-insurance="${item.id}">削除</button></div></article>`;
+  }).join(""):'<div class="empty">保障の保険と、学資・個人年金など将来受取のある保険を分けて登録できます。</div>';
 }
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
@@ -2288,8 +2337,9 @@ $("saveInsuranceButton").addEventListener("click", () => {
     insuredPerson:$("insuranceInsured").value.trim(), policyholder:$("insurancePolicyholder").value.trim(),
     paymentFrequency:$("insuranceFrequency").value, premium:num($("insurancePremium").value), coverageAmount:num($("insuranceCoverage").value),
     currentValue:num($("insuranceCurrentValue").value), maturityAmount:num($("insuranceMaturityAmount").value), startDate:$("insuranceStartDate").value,
-    renewalDate:$("insuranceRenewalDate").value, maturityDate:$("insuranceMaturityDate").value, beneficiary:$("insuranceBeneficiary").value.trim(),
-    includeInAssets:$("insuranceIncludeAssets").checked, memo:$("insuranceMemo").value.trim()};
+    paymentEndDate:$("insurancePaymentEndDate").value, renewalDate:$("insuranceRenewalDate").value, maturityDate:$("insuranceMaturityDate").value,
+    payoutType:$("insurancePayoutType").value, payoutStartDate:$("insurancePayoutStartDate").value, payoutAmount:num($("insurancePayoutAmount").value), payoutCount:num($("insurancePayoutCount").value),
+    beneficiary:$("insuranceBeneficiary").value.trim(), includeInAssets:$("insuranceIncludeAssets").checked, memo:$("insuranceMemo").value.trim()};
   const index=state.insurancePolicies.findIndex(x=>x.id===id); if(index>=0) state.insurancePolicies[index]=item; else state.insurancePolicies.push(item);
   saveState(); clearInsuranceForm(); renderAll();
 });
@@ -2300,7 +2350,8 @@ document.addEventListener("click", event=>{
     $("insuranceId").value=item.id; $("insuranceOwner").value=item.owner; $("insuranceCategory").value=item.category; $("insuranceCompany").value=item.company; $("insuranceName").value=item.name;
     $("insuranceInsured").value=item.insuredPerson; $("insurancePolicyholder").value=item.policyholder; $("insuranceFrequency").value=item.paymentFrequency; $("insurancePremium").value=item.premium||"";
     $("insuranceCoverage").value=item.coverageAmount||""; $("insuranceCurrentValue").value=item.currentValue||""; $("insuranceMaturityAmount").value=item.maturityAmount||"";
-    $("insuranceStartDate").value=item.startDate; $("insuranceRenewalDate").value=item.renewalDate; $("insuranceMaturityDate").value=item.maturityDate;
+    $("insuranceStartDate").value=item.startDate; $("insurancePaymentEndDate").value=item.paymentEndDate||""; $("insuranceRenewalDate").value=item.renewalDate; $("insuranceMaturityDate").value=item.maturityDate;
+    $("insurancePayoutType").value=item.payoutType||"none"; $("insurancePayoutStartDate").value=item.payoutStartDate||""; $("insurancePayoutAmount").value=item.payoutAmount||""; $("insurancePayoutCount").value=item.payoutCount||"";
     $("insuranceBeneficiary").value=item.beneficiary; $("insuranceIncludeAssets").checked=Boolean(item.includeInAssets); $("insuranceMemo").value=item.memo;
     $("saveInsuranceButton").textContent="変更を保存"; $("cancelInsuranceEdit").classList.remove("hidden"); $("insuranceEditor").open=true; $("insuranceEditor").scrollIntoView({behavior:"smooth",block:"start"}); return; }
   const del=event.target.closest("[data-delete-insurance]"); if(del && confirm("この保険を削除しますか？")){ state.insurancePolicies=state.insurancePolicies.filter(x=>x.id!==del.dataset.deleteInsurance); saveState(); renderAll(); }
@@ -2314,7 +2365,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta20-insurance-management", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta25-insurance-cashflow", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
