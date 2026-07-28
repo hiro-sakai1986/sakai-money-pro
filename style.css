@@ -118,3 +118,17 @@ body.dark{--accent:#a78bfa;--accent2:#f472b6}
 .wealth-growth-card{padding:22px}.wealth-growth-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.wealth-growth-head span,.wealth-growth-stats span{display:block;color:var(--muted);font-size:.88rem}.wealth-growth-head strong{display:block;font-size:2rem;margin-top:4px}.wealth-growth-head small,.wealth-growth-stats small{color:var(--muted)}.wealth-growth-badge{background:rgba(139,79,232,.1);color:var(--accent)!important;padding:8px 11px;border-radius:999px;font-weight:800;white-space:nowrap}
 #wealthGrowthChart{display:block;width:100%;height:270px;margin:12px 0 2px}.wealth-growth-note{color:var(--muted);font-size:.84rem;margin:4px 0 18px}.wealth-growth-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}.wealth-growth-stats>div{background:var(--surface2);border-radius:18px;padding:14px}.wealth-growth-stats strong{display:block;font-size:1.05rem;margin-top:5px}.wealth-growth-save{width:100%;margin-top:14px}
 @media(max-width:430px){.wealth-growth-heading{display:block}.wealth-range{width:max-content;margin-top:10px}.wealth-growth-card{padding:18px}.wealth-growth-head strong{font-size:1.65rem}.wealth-growth-stats{grid-template-columns:1fr 1fr}}
+
+
+/* V8 Beta 第25弾 保険分類・将来受取・払込満了 */
+.insurance-classification-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.insurance-class-card{padding:18px;display:flex;flex-direction:column;gap:7px;border-top:5px solid var(--accent)}
+.insurance-class-card span{font-size:12px;color:var(--muted);font-weight:800}
+.insurance-class-card strong{font-size:24px}
+.insurance-class-card small{color:var(--muted)}
+.insurance-class-card.protection{border-top-color:#8758e7}.insurance-class-card.savings{border-top-color:#df3d9b}.insurance-class-card.asset{border-top-color:#4f9478}
+.insurance-next-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.insurance-cashflow-section{margin:24px 0}.subsection-title p{color:var(--accent);letter-spacing:.16em;font-weight:900;font-size:11px;margin:0}.subsection-title h3{font-size:22px;margin:4px 0 12px}
+.receipt-card{display:flex;align-items:center;justify-content:space-between;padding:15px 18px}.receipt-card div{display:flex;flex-direction:column;gap:3px}.receipt-card small{color:var(--muted)}.receipt-card b{color:var(--good);font-size:18px}
+.insurance-card-grid .full{grid-column:1/-1;color:var(--good);font-weight:800}
+@media(max-width:680px){.insurance-classification-grid,.insurance-next-grid{grid-template-columns:1fr}.receipt-card{align-items:flex-start;gap:10px}.receipt-card b{white-space:nowrap}}
