@@ -1512,6 +1512,7 @@ function renderRecurringIncomeBankOptions() {
   select.innerHTML='<option value="">口座を選択</option>' + (state.bankAccounts||[]).map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.bankName)}（${escapeHtml(a.owner)}・${escapeHtml(a.accountType)}）</option>`).join("");
   if([...select.options].some(o=>o.value===current)) select.value=current;
 }
+let annualCashflowYear = new Date().getFullYear();
 function renderCashflowForecast() {
   if(!$("cashflowIncomeTotal")) return;
   const anchor=recurringMonthDate(); const year=anchor.getFullYear(), monthIndex=anchor.getMonth();
@@ -1528,7 +1529,80 @@ function renderCashflowForecast() {
 
   const accountWrap=$("cashflowAccountForecast");
   if(accountWrap){ const targetEnd=new Date(year,monthIndex+1,0,23,59,59,999); accountWrap.innerHTML=(state.bankAccounts||[]).length?(state.bankAccounts||[]).map(a=>{const plus=cumulativeScheduledAmount(state.recurringIncomes||[],a.id,targetEnd,"income"); const minus=cumulativeScheduledAmount(state.recurringPayments||[],a.id,targetEnd,"expense"); const projected=num(a.balance)+plus-minus; const warn=projected<0; return `<div class="recurring-account-row ${warn?"warning":""}"><div><strong>${escapeHtml(a.bankName)}</strong><small>${escapeHtml(a.owner)}・${escapeHtml(a.accountType)}</small></div><div class="recurring-account-numbers"><span>現在 ${yen(a.balance)}</span><span class="positive">入金 +${yen(plus)}</span><span class="negative">引落 −${yen(minus)}</span><b>見込み ${yen(projected)}</b></div>${warn?'<em>残高不足の見込み</em>':''}</div>`}).join(""):'<div class="empty">銀行口座を登録すると、口座別の残高予測を表示できます。</div>'; }
+  renderAnnualCashflowForecast();
 }
+
+function annualCashflowMonths(year) {
+  return Array.from({ length: 12 }, (_, monthIndex) => {
+    const entries = cashflowEntriesInMonth(year, monthIndex);
+    const income = entries.filter(x => x.kind === "income").reduce((sum, x) => sum + num(x.amount), 0);
+    const expense = entries.filter(x => x.kind === "expense").reduce((sum, x) => sum + num(x.amount), 0);
+    return { monthIndex, entries, income, expense, net: income - expense };
+  });
+}
+function annualCashflowYearEndEstimate(year, months) {
+  const now = new Date();
+  const currentCash = num(state.cash);
+  if (year < now.getFullYear()) return null;
+  if (year === now.getFullYear()) {
+    const futureNet = months.filter(x => x.monthIndex >= now.getMonth()).reduce((sum, x) => sum + x.net, 0);
+    return currentCash + futureNet;
+  }
+  // 将来年は、現在から前年末までの登録済み予定を積み上げた後、その年の12か月を反映する。
+  let estimate = currentCash;
+  let y = now.getFullYear(), m = now.getMonth();
+  let guard = 0;
+  while ((y < year || (y === year && m <= 11)) && guard < 240) {
+    if (y === year) break;
+    estimate += cashflowEntriesInMonth(y, m).reduce((sum, x) => sum + (x.kind === "income" ? num(x.amount) : -num(x.amount)), 0);
+    m++;
+    if (m > 11) { m = 0; y++; }
+    guard++;
+  }
+  return estimate + months.reduce((sum, x) => sum + x.net, 0);
+}
+function renderAnnualCashflowForecast() {
+  if (!$("annualCashflowMonths")) return;
+  const year = annualCashflowYear;
+  const months = annualCashflowMonths(year);
+  const totalIncome = months.reduce((sum, x) => sum + x.income, 0);
+  const totalExpense = months.reduce((sum, x) => sum + x.expense, 0);
+  const totalNet = totalIncome - totalExpense;
+  const yearEnd = annualCashflowYearEndEstimate(year, months);
+
+  $("annualCashflowYearLabel").textContent = `${year}年`;
+  $("annualCashflowIncome").textContent = yen(totalIncome);
+  $("annualCashflowExpense").textContent = yen(totalExpense);
+  $("annualCashflowNet").textContent = signedYen(totalNet);
+  $("annualCashflowNet").className = totalNet < 0 ? "negative" : "positive";
+  $("annualCashflowYearEndCash").textContent = yearEnd == null ? "—" : yen(yearEnd);
+  $("annualCashflowYearEndCash").className = yearEnd != null && yearEnd < 0 ? "negative" : "";
+
+  const maxAbs = Math.max(1, ...months.map(x => Math.abs(x.net)));
+  const chart = $("annualCashflowChart");
+  if (chart) chart.innerHTML = months.map(x => {
+    const pct = Math.max(5, Math.round(Math.abs(x.net) / maxAbs * 100));
+    const cls = x.net < 0 ? "expense" : "income";
+    return `<div class="annual-bar-column" title="${x.monthIndex + 1}月 ${signedYen(x.net)}">
+      <div class="annual-bar-zone"><span class="annual-bar ${cls}" style="height:${pct}%"></span></div>
+      <small>${x.monthIndex + 1}月</small>
+    </div>`;
+  }).join("");
+
+  const monthWrap = $("annualCashflowMonths");
+  if (monthWrap) monthWrap.innerHTML = months.map(x => {
+    const cls = x.net < 0 ? "negative" : "positive";
+    const eventCount = x.entries.length;
+    return `<div class="annual-month-row">
+      <strong>${x.monthIndex + 1}月</strong>
+      <span class="annual-month-income">入 ${yen(x.income)}</span>
+      <span class="annual-month-expense">出 ${yen(x.expense)}</span>
+      <b class="${cls}">${signedYen(x.net)}</b>
+      <small>${eventCount}件</small>
+    </div>`;
+  }).join("");
+}
+
 function renderRecurringIncomes() {
   renderRecurringIncomeBankOptions();
   const list=state.recurringIncomes||[]; if($("recurringIncomeCount")) $("recurringIncomeCount").textContent=`${list.length}件`;
@@ -2726,6 +2800,11 @@ document.addEventListener("click",event=>{
   const edit=event.target.closest("[data-edit-income]"); if(edit){const item=state.recurringIncomes.find(x=>x.id===edit.dataset.editIncome); if(!item)return; $("recurringIncomeId").value=item.id; $("recurringIncomeName").value=item.name; $("recurringIncomeCategory").value=item.category||"給与"; $("recurringIncomeAmount").value=item.amount||""; $("recurringIncomeInterval").value=String(item.intervalMonths||1); $("recurringIncomeDay").value=item.depositDay||1; $("recurringIncomeStart").value=item.startDate||today(); $("recurringIncomeEnd").value=item.endDate||""; $("recurringIncomeBank").value=item.bankAccountId||""; $("recurringIncomeMemo").value=item.memo||""; $("saveRecurringIncomeButton").textContent="変更を保存"; $("cancelRecurringIncomeEdit").classList.remove("hidden"); $("recurringIncomeEditor").open=true; $("recurringIncomeEditor").scrollIntoView({behavior:"smooth",block:"start"}); return;}
   const del=event.target.closest("[data-delete-income]"); if(del&&confirm("この定期入金を削除しますか？")){state.recurringIncomes=state.recurringIncomes.filter(x=>x.id!==del.dataset.deleteIncome); saveState(); renderAll();}
 });
+
+$("annualCashflowPrev")?.addEventListener("click", () => { annualCashflowYear--; renderAnnualCashflowForecast(); });
+$("annualCashflowNext")?.addEventListener("click", () => { annualCashflowYear++; renderAnnualCashflowForecast(); });
+$("annualCashflowThisYear")?.addEventListener("click", () => { annualCashflowYear = new Date().getFullYear(); renderAnnualCashflowForecast(); });
+
 $("saveBaseButton").addEventListener("click", () => {
   state.unallocatedCash = num($("cashInput").value); syncCashFromBanks(); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
@@ -2735,7 +2814,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta28-cashflow-forecast", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta29-annual-cashflow", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
