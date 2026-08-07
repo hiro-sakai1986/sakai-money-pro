@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第25弾 保険分類・将来受取版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第27弾 引き落としカレンダー版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=26">
+  <link rel="stylesheet" href="./style.css?v=27">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第26弾・定期支払い管理版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第27弾・引き落としカレンダー版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -255,8 +255,30 @@
         <article class="card metric-card"><span>今月の引落予定</span><strong id="recurringMonthTotal">¥0</strong><small id="recurringMonthCount">0件</small></article>
         <article class="card metric-card"><span>次の引き落とし</span><strong id="recurringNextDate">登録なし</strong><small id="recurringNextName">定期支払いを登録してください</small></article>
       </div>
+      <article class="card recurring-calendar-card">
+        <div class="recurring-calendar-toolbar">
+          <div><p>PAYMENT CALENDAR</p><h3>引き落としカレンダー</h3></div>
+          <div class="recurring-calendar-nav">
+            <button type="button" id="recurringCalendarPrev" aria-label="前の月">‹</button>
+            <strong id="recurringCalendarMonthLabel">—</strong>
+            <button type="button" id="recurringCalendarNext" aria-label="次の月">›</button>
+            <button type="button" id="recurringCalendarToday" class="calendar-today-button">今月</button>
+          </div>
+        </div>
+        <div class="recurring-calendar-stats">
+          <div><span>選択月合計</span><strong id="recurringCalendarTotal">¥0</strong></div>
+          <div><span>引落日数</span><strong id="recurringCalendarDays">0日</strong></div>
+          <div><span>予定件数</span><strong id="recurringCalendarCount">0件</strong></div>
+        </div>
+        <div id="recurringCalendarGrid" class="recurring-calendar-grid"></div>
+        <details class="calendar-detail-toggle">
+          <summary>この月の予定を一覧で見る</summary>
+          <div id="recurringCalendarList" class="recurring-calendar-list"></div>
+        </details>
+      </article>
       <article class="card recurring-account-forecast">
-        <div class="subsection-title"><p>ACCOUNT FORECAST</p><h3>口座別・引落後の見込み</h3></div>
+        <div class="subsection-title"><p>ACCOUNT FORECAST</p><h3>口座別・選択月末の残高予測</h3></div>
+        <p class="form-note recurring-forecast-note">現在残高から登録済みの引き落とし予定だけを差し引いた目安です。給与・入金・臨時支出は含みません。</p>
         <div id="recurringAccountForecast" class="recurring-account-list"></div>
       </article>
       <details id="recurringPaymentEditor" class="card form-card editor-details recurring-editor">
@@ -741,6 +763,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=26"></script>
+  <script src="./app.js?v=27"></script>
 </body>
 </html>
