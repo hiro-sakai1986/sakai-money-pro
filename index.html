@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第28弾 キャッシュフロー予測版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第29弾 年間キャッシュフロー予測版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=28">
+  <link rel="stylesheet" href="./style.css?v=29">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第28弾・キャッシュフロー予測版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第29弾・年間キャッシュフロー予測版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -304,6 +304,33 @@
         <p class="form-note recurring-forecast-note">現在残高に、受取口座を指定した定期入金を加え、登録済みの引き落としを差し引いた予測です。実際の銀行残高は変更しません。</p>
         <div id="cashflowAccountForecast" class="recurring-account-list"></div>
       </article>
+
+      <div class="section-heading annual-cashflow-heading">
+        <div><p>ANNUAL CASH FLOW</p><h2>年間キャッシュフロー予測</h2></div>
+        <span class="future-snapshot-chip">12か月</span>
+      </div>
+      <article class="card annual-cashflow-card">
+        <div class="annual-cashflow-head">
+          <button type="button" id="annualCashflowPrev" aria-label="前年">‹</button>
+          <div><span>予測する年</span><strong id="annualCashflowYearLabel">—</strong></div>
+          <button type="button" id="annualCashflowNext" aria-label="翌年">›</button>
+          <button type="button" id="annualCashflowThisYear" class="calendar-today-button">今年</button>
+        </div>
+        <div class="annual-cashflow-summary-grid">
+          <div class="annual-summary income"><span>年間入金予定</span><strong id="annualCashflowIncome">¥0</strong></div>
+          <div class="annual-summary expense"><span>年間引落予定</span><strong id="annualCashflowExpense">¥0</strong></div>
+          <div class="annual-summary balance"><span>年間予定収支</span><strong id="annualCashflowNet">¥0</strong></div>
+          <div class="annual-summary"><span>年末預金見込み</span><strong id="annualCashflowYearEndCash">¥0</strong></div>
+        </div>
+        <div class="annual-cashflow-chart-head">
+          <strong>月ごとの予定収支</strong>
+          <small>入金 − 引落</small>
+        </div>
+        <div id="annualCashflowChart" class="annual-cashflow-chart"></div>
+        <div id="annualCashflowMonths" class="annual-cashflow-months"></div>
+        <p class="form-note">給与・ボーナス・児童手当などの定期入金、定期支払い、保険の受取予定、登録済み配当予想を12か月分まとめた概算です。年末預金見込みは現在の預金残高を起点に、今年は今月以降、将来年はその年の年間予定収支を反映します。実際の銀行残高は変更しません。</p>
+      </article>
+
       <details id="recurringIncomeEditor" class="card form-card editor-details recurring-editor income-editor">
         <summary>＋ 定期入金を追加・編集</summary>
         <input id="recurringIncomeId" type="hidden">
@@ -804,6 +831,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=28"></script>
+  <script src="./app.js?v=29"></script>
 </body>
 </html>
