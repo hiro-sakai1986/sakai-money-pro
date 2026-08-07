@@ -9,14 +9,14 @@
   <title>サカイ家 MONEY Pro 8.0 Beta 第25弾 保険分類・将来受取版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=25">
+  <link rel="stylesheet" href="./style.css?v=26">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第25弾・保険分類・将来受取版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第26弾・定期支払い管理版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -246,6 +246,38 @@
         <div class="progress-track budget-progress-track"><div id="budgetUsageProgress" class="progress-bar"></div></div>
         <div class="budget-usage-row"><span id="budgetUsageText">使用率 0%</span><span id="budgetSpentText">支出 ¥0</span></div>
       </article>
+
+      <div class="section-heading recurring-heading">
+        <div><p>REGULAR PAYMENTS</p><h2>定期支払い・引き落とし</h2></div>
+        <span id="recurringPaymentCount" class="future-snapshot-chip">0件</span>
+      </div>
+      <div class="recurring-summary-grid">
+        <article class="card metric-card"><span>今月の引落予定</span><strong id="recurringMonthTotal">¥0</strong><small id="recurringMonthCount">0件</small></article>
+        <article class="card metric-card"><span>次の引き落とし</span><strong id="recurringNextDate">登録なし</strong><small id="recurringNextName">定期支払いを登録してください</small></article>
+      </div>
+      <article class="card recurring-account-forecast">
+        <div class="subsection-title"><p>ACCOUNT FORECAST</p><h3>口座別・引落後の見込み</h3></div>
+        <div id="recurringAccountForecast" class="recurring-account-list"></div>
+      </article>
+      <details id="recurringPaymentEditor" class="card form-card editor-details recurring-editor">
+        <summary>＋ 定期支払いを追加・編集</summary>
+        <input id="recurringPaymentId" type="hidden">
+        <div class="form-grid">
+          <label>項目名<input id="recurringPaymentName" placeholder="例：長女 学資保険"></label>
+          <label>カテゴリ<select id="recurringPaymentCategory"><option>保険</option><option>住宅ローン</option><option>通信</option><option>光熱費</option><option>教育・習い事</option><option>サブスク</option><option>クレジットカード</option><option>税金</option><option>固定費</option><option>その他</option></select></label>
+          <label>金額（円）<input id="recurringPaymentAmount" type="number" min="0" inputmode="numeric"></label>
+          <label>支払間隔<select id="recurringPaymentInterval"><option value="1">毎月</option><option value="2">2か月ごと</option><option value="3">3か月ごと</option><option value="6">6か月ごと</option><option value="12">毎年</option></select></label>
+          <label>引落日<input id="recurringPaymentDay" type="number" min="1" max="31" inputmode="numeric" placeholder="例：27"></label>
+          <label>支払方法<select id="recurringPaymentMethod"><option value="direct">口座振替</option><option value="card">クレジットカード</option></select></label>
+          <label>開始日<input id="recurringPaymentStart" type="date"></label>
+          <label>終了日・払込満了日<input id="recurringPaymentEnd" type="date"></label>
+          <label class="full">引落口座<select id="recurringPaymentBank"><option value="">口座を選択</option></select></label>
+          <label class="full">メモ<input id="recurringPaymentMemo" placeholder="任意"></label>
+        </div>
+        <p class="form-note">終了日を入れると、その日を過ぎた後は引落予定に含めません。保険の払込満了日にも使えます。口座残高は自動で減らさず、今後の引落後残高を「予定」として表示します。</p>
+        <div class="button-row"><button class="primary" id="saveRecurringPaymentButton">定期支払いを保存</button><button class="secondary hidden" id="cancelRecurringPaymentEdit">編集を取消</button></div>
+      </details>
+      <div id="recurringPaymentList" class="stack recurring-payment-list"></div>
 
       <h2>かんたん入力</h2>
       <article class="card form-card quick-entry-card">
@@ -709,6 +741,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=25"></script>
+  <script src="./app.js?v=26"></script>
 </body>
 </html>

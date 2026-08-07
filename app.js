@@ -36,6 +36,7 @@ const defaultState = {
   confirmedDuplicateGroups: [],
   dividendReceipts: [],
   insurancePolicies: [],
+  recurringPayments: [],
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
@@ -184,6 +185,21 @@ function normalize(raw) {
     includeInAssets: Boolean(item?.includeInAssets),
     memo: String(item?.memo || "").trim()
   })).filter(item => item.company || item.name) : [];
+  s.recurringPayments = Array.isArray(s.recurringPayments) ? s.recurringPayments.map(item => ({
+    ...item,
+    id: item?.id || uid(),
+    name: String(item?.name || "").trim(),
+    category: String(item?.category || "固定費").trim(),
+    amount: num(item?.amount),
+    intervalMonths: [1,2,3,6,12].includes(Number(item?.intervalMonths)) ? Number(item.intervalMonths) : 1,
+    startDate: String(item?.startDate || today()),
+    endDate: String(item?.endDate || ""),
+    debitDay: Math.min(31, Math.max(1, Number(item?.debitDay) || Number(String(item?.startDate || today()).slice(8,10)) || 1)),
+    bankAccountId: String(item?.bankAccountId || ""),
+    paymentMethod: item?.paymentMethod === "card" ? "card" : "direct",
+    memo: String(item?.memo || "").trim(),
+    active: item?.active !== false
+  })).filter(item => item.name && item.amount > 0) : [];
   s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
   s.budgetSettings = { ...defaultState.budgetSettings, ...(s.budgetSettings || {}) };
   s.budgetSettings.monthlyLimits = s.budgetSettings.monthlyLimits && typeof s.budgetSettings.monthlyLimits === "object" ? s.budgetSettings.monthlyLimits : {};
@@ -1348,6 +1364,103 @@ function drawBudgetTrend(anchorMonth = selectedBudgetMonth()) {
   ctx.fillStyle = good; ctx.fillRect(pad.left, 4, 10, 10); ctx.fillStyle = muted; ctx.fillText("収入", pad.left + 15, 13);
   ctx.fillStyle = bad; ctx.fillRect(pad.left + 58, 4, 10, 10); ctx.fillStyle = muted; ctx.fillText("支出", pad.left + 73, 13);
 }
+function recurringBankLabel(id) {
+  const account = (state.bankAccounts || []).find(x => x.id === id);
+  if (!account) return "引落口座未設定";
+  return `${account.bankName}${account.accountType ? `・${account.accountType}` : ""}${account.owner ? `（${account.owner}）` : ""}`;
+}
+function recurringIntervalLabel(months) {
+  const n = Number(months) || 1;
+  return n === 1 ? "毎月" : n === 12 ? "毎年" : `${n}か月ごと`;
+}
+function safePaymentDate(year, monthIndex, day) {
+  const last = new Date(year, monthIndex + 1, 0).getDate();
+  return new Date(year, monthIndex, Math.min(Math.max(1, Number(day) || 1), last), 12, 0, 0, 0);
+}
+function recurringNextOccurrence(item, fromDate = new Date()) {
+  if (item.active === false) return null;
+  const start = new Date(`${item.startDate || today()}T12:00:00`);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = item.endDate ? new Date(`${item.endDate}T23:59:59`) : null;
+  const from = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), 0, 0, 0, 0);
+  const interval = [1,2,3,6,12].includes(Number(item.intervalMonths)) ? Number(item.intervalMonths) : 1;
+  let k = Math.max(0, Math.floor(((from.getFullYear() - start.getFullYear()) * 12 + from.getMonth() - start.getMonth()) / interval) - 1);
+  for (let tries = 0; tries < 120; tries++, k++) {
+    const totalMonth = start.getMonth() + k * interval;
+    const year = start.getFullYear() + Math.floor(totalMonth / 12);
+    const month = ((totalMonth % 12) + 12) % 12;
+    const date = safePaymentDate(year, month, item.debitDay || start.getDate());
+    if (date < start || date < from) continue;
+    if (end && date > end) return null;
+    return date;
+  }
+  return null;
+}
+function recurringOccurrencesInMonth(item, year, monthIndex) {
+  if (item.active === false) return [];
+  const monthStart = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+  const monthEnd = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+  const next = recurringNextOccurrence(item, monthStart);
+  return next && next <= monthEnd ? [next] : [];
+}
+function renderRecurringPayments() {
+  const list = state.recurringPayments || [];
+  const bankSelect = $("recurringPaymentBank");
+  if (bankSelect) {
+    const current = bankSelect.value;
+    bankSelect.innerHTML = '<option value="">口座を選択</option>' + (state.bankAccounts || []).map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.bankName)}・${escapeHtml(a.accountType)}（${escapeHtml(a.owner)}） ${yen(a.balance)}</option>`).join("");
+    if ([...bankSelect.options].some(o => o.value === current)) bankSelect.value = current;
+  }
+  if ($("recurringPaymentCount")) $("recurringPaymentCount").textContent = `${list.length}件`;
+  const now = new Date();
+  const monthItems = list.flatMap(item => recurringOccurrencesInMonth(item, now.getFullYear(), now.getMonth()).map(date => ({item, date})));
+  const monthTotal = monthItems.reduce((sum, x) => sum + num(x.item.amount), 0);
+  if ($("recurringMonthTotal")) $("recurringMonthTotal").textContent = yen(monthTotal);
+  if ($("recurringMonthCount")) $("recurringMonthCount").textContent = `${monthItems.length}件`;
+  const upcoming = list.map(item => ({item, date: recurringNextOccurrence(item, now)})).filter(x => x.date).sort((a,b)=>a.date-b.date);
+  if ($("recurringNextDate")) $("recurringNextDate").textContent = upcoming.length ? upcoming[0].date.toLocaleDateString("ja-JP", {month:"numeric",day:"numeric"}) : "登録なし";
+  if ($("recurringNextName")) $("recurringNextName").textContent = upcoming.length ? `${upcoming[0].item.name}・${yen(upcoming[0].item.amount)}・${recurringBankLabel(upcoming[0].item.bankAccountId)}` : "定期支払いを登録してください";
+
+  const accountForecast = $("recurringAccountForecast");
+  if (accountForecast) {
+    const grouped = new Map();
+    monthItems.forEach(({item}) => {
+      const id = item.bankAccountId || "__unset__";
+      grouped.set(id, (grouped.get(id) || 0) + num(item.amount));
+    });
+    const rows = [...grouped.entries()].map(([id, scheduled]) => {
+      const account = (state.bankAccounts || []).find(a => a.id === id);
+      const balance = account ? num(account.balance) : 0;
+      const after = balance - scheduled;
+      const warning = account && after < 0;
+      return `<div class="recurring-account-row ${warning ? "is-warning" : ""}"><div><strong>${escapeHtml(account ? recurringBankLabel(id) : "引落口座未設定")}</strong><small>${account ? `現在 ${yen(balance)}` : "口座を設定してください"}</small></div><div><span>今月予定 ${yen(scheduled)}</span><b>${account ? `引落後 ${yen(after)}` : "—"}</b>${warning ? '<em>残高不足の見込み</em>' : ""}</div></div>`;
+    });
+    accountForecast.innerHTML = rows.length ? rows.join("") : '<div class="empty">今月の引落予定はありません。</div>';
+  }
+
+  const listEl = $("recurringPaymentList");
+  if (listEl) listEl.innerHTML = list.length ? list.slice().sort((a,b)=>(recurringNextOccurrence(a, now)?.getTime()||Infinity)-(recurringNextOccurrence(b, now)?.getTime()||Infinity)).map(item => {
+    const next = recurringNextOccurrence(item, now);
+    const end = item.endDate ? `・終了 ${escapeHtml(item.endDate)}` : "";
+    return `<article class="card recurring-payment-card"><div class="item-head"><div><span class="recurring-category-chip">${escapeHtml(item.category)}</span><div class="item-title">${escapeHtml(item.name)}</div><div class="item-sub">${recurringIntervalLabel(item.intervalMonths)}・${item.debitDay}日・${item.paymentMethod === "card" ? "カード払い" : "口座振替"}${end}</div></div><div class="item-value">${yen(item.amount)}</div></div><div class="recurring-payment-meta"><span>引落口座 ${escapeHtml(recurringBankLabel(item.bankAccountId))}</span><span>次回 ${next ? next.toLocaleDateString("ja-JP") : "予定終了"}</span></div>${item.memo ? `<p class="insurance-memo">${escapeHtml(item.memo)}</p>` : ""}<div class="item-actions"><button class="edit-button" data-edit-recurring="${item.id}">編集</button><button class="delete-button" data-delete-recurring="${item.id}">削除</button></div></article>`;
+  }).join("") : '<div class="empty">保険料・住宅ローン・通信費・習い事など、定期的な引き落としを登録できます。</div>';
+}
+function clearRecurringPaymentForm() {
+  if (!$("recurringPaymentId")) return;
+  $("recurringPaymentId").value = "";
+  $("recurringPaymentName").value = "";
+  $("recurringPaymentCategory").value = "保険";
+  $("recurringPaymentAmount").value = "";
+  $("recurringPaymentInterval").value = "1";
+  $("recurringPaymentDay").value = "27";
+  $("recurringPaymentMethod").value = "direct";
+  $("recurringPaymentStart").value = today();
+  $("recurringPaymentEnd").value = "";
+  $("recurringPaymentBank").value = "";
+  $("recurringPaymentMemo").value = "";
+  $("saveRecurringPaymentButton").textContent = "定期支払いを保存";
+  $("cancelRecurringPaymentEdit").classList.add("hidden");
+}
 function renderTransactions() {
   setupMonthOptions();
   const query = $("txSearch").value.trim().toLowerCase(), month = selectedBudgetMonth();
@@ -1904,14 +2017,14 @@ function renderInsurance() {
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderInsurance(); renderLifeEvents(); renderBankAccounts();
+  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderInsurance(); renderLifeEvents(); renderBankAccounts(); renderRecurringPayments();
   // 保険一覧の集計後に、ホームカードも同じ state から再同期する。
   renderHomeInsuranceSummary();
   $("cashInput").value = state.unallocatedCash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
 }
 function clearTxForm() {
   $("txId").value = "";
-  $("bankUpdatedAt").value = today(); $("txDate").value = today();
+  $("bankUpdatedAt").value = today(); $("txDate").value = today(); if ($("recurringPaymentStart")) $("recurringPaymentStart").value = today();
   $("txKind").value = "expense";
   ["txCategory", "txAmount", "txMemo"].forEach(id => $(id).value = "");
   $("addTxButton").textContent = "家計を追加";
@@ -2356,6 +2469,58 @@ document.addEventListener("click", event=>{
     $("saveInsuranceButton").textContent="変更を保存"; $("cancelInsuranceEdit").classList.remove("hidden"); $("insuranceEditor").open=true; $("insuranceEditor").scrollIntoView({behavior:"smooth",block:"start"}); return; }
   const del=event.target.closest("[data-delete-insurance]"); if(del && confirm("この保険を削除しますか？")){ state.insurancePolicies=state.insurancePolicies.filter(x=>x.id!==del.dataset.deleteInsurance); saveState(); renderAll(); }
 });
+$("saveRecurringPaymentButton")?.addEventListener("click", () => {
+  const name = $("recurringPaymentName").value.trim();
+  const amount = num($("recurringPaymentAmount").value);
+  if (!name) return alert("項目名を入力してください");
+  if (!amount) return alert("金額を入力してください");
+  const id = $("recurringPaymentId").value || uid();
+  const item = {
+    id,
+    name,
+    category: $("recurringPaymentCategory").value,
+    amount,
+    intervalMonths: Number($("recurringPaymentInterval").value) || 1,
+    debitDay: Math.min(31, Math.max(1, Number($("recurringPaymentDay").value) || 1)),
+    paymentMethod: $("recurringPaymentMethod").value === "card" ? "card" : "direct",
+    startDate: $("recurringPaymentStart").value || today(),
+    endDate: $("recurringPaymentEnd").value || "",
+    bankAccountId: $("recurringPaymentBank").value || "",
+    memo: $("recurringPaymentMemo").value.trim(),
+    active: true
+  };
+  const index = state.recurringPayments.findIndex(x => x.id === id);
+  if (index >= 0) state.recurringPayments[index] = item; else state.recurringPayments.push(item);
+  saveState(); clearRecurringPaymentForm(); renderAll();
+});
+$("cancelRecurringPaymentEdit")?.addEventListener("click", clearRecurringPaymentForm);
+document.addEventListener("click", event => {
+  const edit = event.target.closest("[data-edit-recurring]");
+  if (edit) {
+    const item = state.recurringPayments.find(x => x.id === edit.dataset.editRecurring); if (!item) return;
+    $("recurringPaymentId").value = item.id;
+    $("recurringPaymentName").value = item.name;
+    $("recurringPaymentCategory").value = item.category || "固定費";
+    $("recurringPaymentAmount").value = item.amount || "";
+    $("recurringPaymentInterval").value = String(item.intervalMonths || 1);
+    $("recurringPaymentDay").value = item.debitDay || 1;
+    $("recurringPaymentMethod").value = item.paymentMethod || "direct";
+    $("recurringPaymentStart").value = item.startDate || today();
+    $("recurringPaymentEnd").value = item.endDate || "";
+    $("recurringPaymentBank").value = item.bankAccountId || "";
+    $("recurringPaymentMemo").value = item.memo || "";
+    $("saveRecurringPaymentButton").textContent = "変更を保存";
+    $("cancelRecurringPaymentEdit").classList.remove("hidden");
+    $("recurringPaymentEditor").open = true;
+    $("recurringPaymentEditor").scrollIntoView({behavior:"smooth", block:"start"});
+    return;
+  }
+  const del = event.target.closest("[data-delete-recurring]");
+  if (del && confirm("この定期支払いを削除しますか？")) {
+    state.recurringPayments = state.recurringPayments.filter(x => x.id !== del.dataset.deleteRecurring);
+    saveState(); renderAll();
+  }
+});
 $("saveBaseButton").addEventListener("click", () => {
   state.unallocatedCash = num($("cashInput").value); syncCashFromBanks(); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
@@ -2365,7 +2530,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta25-insurance-cashflow", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta26-recurring-payments", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
@@ -2380,7 +2545,7 @@ $("resetButton").addEventListener("click", () => {
 });
 window.addEventListener("resize", () => { if ($("homeScreen").classList.contains("active")) { drawAllocation(); drawTrend(); renderHistoryDashboard(); } if ($("investScreen").classList.contains("active")) drawInvestmentAllocation(); if ($("budgetScreen").classList.contains("active")) drawBudgetTrend(selectedBudgetMonth()); });
 
-$("bankUpdatedAt").value = today(); $("txDate").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
+$("bankUpdatedAt").value = today(); $("txDate").value = today(); if ($("recurringPaymentStart")) $("recurringPaymentStart").value = today(); $("assetDate").value = today(); $("planStart").value = today(); $("nisaPurchaseDate").value = today();
 $("planMethod").addEventListener("change", syncPlanMethodUI);
 syncPlanMethodUI();
 recordSnapshot(); saveState(); 
