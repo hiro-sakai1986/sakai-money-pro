@@ -37,6 +37,7 @@ const defaultState = {
   dividendReceipts: [],
   insurancePolicies: [],
   recurringPayments: [],
+  recurringIncomes: [],
   transactions: [],
   budgetSettings: { monthlyLimits: {} },
   education: { child1: 0, child2: 0, child3: 0, monthly: 0, target1: 0, target2: 0, target3: 0 },
@@ -197,6 +198,20 @@ function normalize(raw) {
     debitDay: Math.min(31, Math.max(1, Number(item?.debitDay) || Number(String(item?.startDate || today()).slice(8,10)) || 1)),
     bankAccountId: String(item?.bankAccountId || ""),
     paymentMethod: item?.paymentMethod === "card" ? "card" : "direct",
+    memo: String(item?.memo || "").trim(),
+    active: item?.active !== false
+  })).filter(item => item.name && item.amount > 0) : [];
+  s.recurringIncomes = Array.isArray(s.recurringIncomes) ? s.recurringIncomes.map(item => ({
+    ...item,
+    id: item?.id || uid(),
+    name: String(item?.name || "").trim(),
+    category: String(item?.category || "給与").trim(),
+    amount: num(item?.amount),
+    intervalMonths: [1,2,3,6,12].includes(Number(item?.intervalMonths)) ? Number(item.intervalMonths) : 1,
+    startDate: String(item?.startDate || today()),
+    endDate: String(item?.endDate || ""),
+    depositDay: Math.min(31, Math.max(1, Number(item?.depositDay) || Number(String(item?.startDate || today()).slice(8,10)) || 1)),
+    bankAccountId: String(item?.bankAccountId || ""),
     memo: String(item?.memo || "").trim(),
     active: item?.active !== false
   })).filter(item => item.name && item.amount > 0) : [];
@@ -1442,6 +1457,86 @@ function recurringOccurrencesInMonth(item, year, monthIndex) {
   const next = recurringNextOccurrence(item, monthStart);
   return next && next <= monthEnd ? [next] : [];
 }
+function recurringIncomeNextOccurrence(item, fromDate = new Date()) {
+  return recurringNextOccurrence({ ...item, debitDay: item.depositDay }, fromDate);
+}
+function recurringIncomeOccurrencesInMonth(item, year, monthIndex) {
+  return recurringOccurrencesInMonth({ ...item, debitDay: item.depositDay }, year, monthIndex);
+}
+function recurringIncomeCategoryIcon(category) {
+  const text = String(category || "");
+  if (/給与/.test(text)) return "💴";
+  if (/ボーナス/.test(text)) return "🎁";
+  if (/児童手当|家族手当/.test(text)) return "👨‍👩‍👧";
+  if (/年金/.test(text)) return "🌿";
+  if (/副収入/.test(text)) return "✨";
+  return "+";
+}
+function recurringIncomeBankLabel(id) { return recurringBankLabel(id); }
+function insuranceReceiptsInMonth(year, monthIndex) {
+  const prefix = `${year}-${String(monthIndex + 1).padStart(2,"0")}-`;
+  return allInsuranceReceiptEvents().filter(x => String(x.date || "").startsWith(prefix));
+}
+function predictedDividendForMonth(year, monthIndex) {
+  const m = dividendSchedule()[monthIndex];
+  return m && num(m.amount) > 0 ? { amount:num(m.amount), names:[...new Set(m.names || [])], year, month:monthIndex+1 } : null;
+}
+function cashflowEntriesInMonth(year, monthIndex) {
+  const incomes=(state.recurringIncomes||[]).flatMap(item=>recurringIncomeOccurrencesInMonth(item,year,monthIndex).map(date=>({kind:"income",source:"regular",date,item,amount:num(item.amount),name:item.name,bankAccountId:item.bankAccountId||""})));
+  const expenses=(state.recurringPayments||[]).flatMap(item=>recurringOccurrencesInMonth(item,year,monthIndex).map(date=>({kind:"expense",source:"regular",date,item,amount:num(item.amount),name:item.name,bankAccountId:item.bankAccountId||""})));
+  const insurance=insuranceReceiptsInMonth(year,monthIndex).map(x=>({kind:"income",source:"insurance",date:new Date(`${x.date}T12:00:00`),item:x,amount:num(x.amount),name:`保険受取 ${x.name}`,bankAccountId:""}));
+  const dividend=predictedDividendForMonth(year,monthIndex);
+  const dividendEntry=dividend ? [{kind:"income",source:"dividend",date:new Date(year,monthIndex+1,0,12,0,0),item:dividend,amount:dividend.amount,name:`配当予想 ${dividend.names.join("・")}`,bankAccountId:"",monthOnly:true}] : [];
+  return [...incomes,...expenses,...insurance,...dividendEntry].sort((a,b)=>a.date-b.date || (a.kind==="income"?-1:1));
+}
+function cumulativeScheduledAmount(items, bankId, endDate, kind) {
+  const start = new Date(); start.setHours(0,0,0,0);
+  if (endDate < start) return 0;
+  let total=0;
+  const cursor=new Date(start.getFullYear(),start.getMonth(),1,12,0,0,0);
+  const last=new Date(endDate.getFullYear(),endDate.getMonth(),1,12,0,0,0);
+  for(let guard=0; cursor<=last && guard<240; guard++) {
+    const y=cursor.getFullYear(), m=cursor.getMonth();
+    for(const item of items) {
+      if ((item.bankAccountId||"") !== bankId) continue;
+      const dates = kind==="income" ? recurringIncomeOccurrencesInMonth(item,y,m) : recurringOccurrencesInMonth(item,y,m);
+      for(const d of dates) if(d>=start && d<=endDate) total += num(item.amount);
+    }
+    cursor.setMonth(cursor.getMonth()+1);
+  }
+  return total;
+}
+function renderRecurringIncomeBankOptions() {
+  const select=$("recurringIncomeBank"); if(!select) return;
+  const current=select.value;
+  select.innerHTML='<option value="">口座を選択</option>' + (state.bankAccounts||[]).map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.bankName)}（${escapeHtml(a.owner)}・${escapeHtml(a.accountType)}）</option>`).join("");
+  if([...select.options].some(o=>o.value===current)) select.value=current;
+}
+function renderCashflowForecast() {
+  if(!$("cashflowIncomeTotal")) return;
+  const anchor=recurringMonthDate(); const year=anchor.getFullYear(), monthIndex=anchor.getMonth();
+  const entries=cashflowEntriesInMonth(year,monthIndex);
+  const income=entries.filter(x=>x.kind==="income").reduce((s,x)=>s+x.amount,0);
+  const expense=entries.filter(x=>x.kind==="expense").reduce((s,x)=>s+x.amount,0);
+  const net=income-expense;
+  $("cashflowMonthLabel").textContent=`${year}年${monthIndex+1}月`;
+  $("cashflowIncomeTotal").textContent=yen(income); $("cashflowExpenseTotal").textContent=yen(expense);
+  $("cashflowNetTotal").textContent=signedYen(net); $("cashflowNetTotal").className=net<0?"negative":"positive";
+  $("cashflowIncomeItems").textContent=`${entries.filter(x=>x.kind==="income").length}件`;
+  const list=$("cashflowForecastList");
+  if(list) list.innerHTML=entries.length?entries.map(x=>{const day=x.monthOnly?"月内":`${x.date.getDate()}日`; const icon=x.kind==="income"?(x.source==="insurance"?"🛡":x.source==="dividend"?"📈":recurringIncomeCategoryIcon(x.item.category)):recurringCategoryIcon(x.item.category); const account=x.bankAccountId?recurringBankLabel(x.bankAccountId):"口座未指定"; return `<div class="cashflow-row ${x.kind}"><span class="cashflow-date">${day}</span><span class="cashflow-icon">${icon}</span><div><strong>${escapeHtml(x.name)}</strong><small>${escapeHtml(account)}</small></div><b>${x.kind==="income"?"+":"−"}${yen(x.amount)}</b></div>`}).join(""):'<div class="empty">この月の入出金予定はありません。</div>';
+
+  const accountWrap=$("cashflowAccountForecast");
+  if(accountWrap){ const targetEnd=new Date(year,monthIndex+1,0,23,59,59,999); accountWrap.innerHTML=(state.bankAccounts||[]).length?(state.bankAccounts||[]).map(a=>{const plus=cumulativeScheduledAmount(state.recurringIncomes||[],a.id,targetEnd,"income"); const minus=cumulativeScheduledAmount(state.recurringPayments||[],a.id,targetEnd,"expense"); const projected=num(a.balance)+plus-minus; const warn=projected<0; return `<div class="recurring-account-row ${warn?"warning":""}"><div><strong>${escapeHtml(a.bankName)}</strong><small>${escapeHtml(a.owner)}・${escapeHtml(a.accountType)}</small></div><div class="recurring-account-numbers"><span>現在 ${yen(a.balance)}</span><span class="positive">入金 +${yen(plus)}</span><span class="negative">引落 −${yen(minus)}</span><b>見込み ${yen(projected)}</b></div>${warn?'<em>残高不足の見込み</em>':''}</div>`}).join(""):'<div class="empty">銀行口座を登録すると、口座別の残高予測を表示できます。</div>'; }
+}
+function renderRecurringIncomes() {
+  renderRecurringIncomeBankOptions();
+  const list=state.recurringIncomes||[]; if($("recurringIncomeCount")) $("recurringIncomeCount").textContent=`${list.length}件`;
+  const now=new Date();
+  const wrap=$("recurringIncomeList"); if(wrap) wrap.innerHTML=list.length?list.slice().sort((a,b)=>(recurringIncomeNextOccurrence(a,now)?.getTime()||Infinity)-(recurringIncomeNextOccurrence(b,now)?.getTime()||Infinity)).map(item=>{const next=recurringIncomeNextOccurrence(item,now); const end=item.endDate?`・終了 ${escapeHtml(item.endDate)}`:""; return `<article class="card recurring-payment-card recurring-income-card"><div class="item-head"><div><span class="recurring-category-chip income-chip">${recurringIncomeCategoryIcon(item.category)} ${escapeHtml(item.category)}</span><div class="item-title">${escapeHtml(item.name)}</div><div class="item-sub">${recurringIntervalLabel(item.intervalMonths)}・${item.depositDay}日${end}</div></div><div class="item-value positive">+${yen(item.amount)}</div></div><div class="recurring-payment-meta"><span>入金口座 ${escapeHtml(recurringIncomeBankLabel(item.bankAccountId))}</span><span>次回 ${next?next.toLocaleDateString("ja-JP"):"予定終了"}</span></div>${item.memo?`<p class="insurance-memo">${escapeHtml(item.memo)}</p>`:""}<div class="item-actions"><button class="edit-button" data-edit-income="${item.id}">編集</button><button class="delete-button" data-delete-income="${item.id}">削除</button></div></article>`}).join(""):'<div class="empty">給与・ボーナス・児童手当などの定期入金を登録できます。</div>';
+  renderCashflowForecast();
+}
+function clearRecurringIncomeForm(){ if(!$("recurringIncomeId"))return; $("recurringIncomeId").value=""; $("recurringIncomeName").value=""; $("recurringIncomeCategory").value="給与"; $("recurringIncomeAmount").value=""; $("recurringIncomeInterval").value="1"; $("recurringIncomeDay").value="25"; $("recurringIncomeStart").value=today(); $("recurringIncomeEnd").value=""; $("recurringIncomeBank").value=""; $("recurringIncomeMemo").value=""; $("saveRecurringIncomeButton").textContent="定期入金を保存"; $("cancelRecurringIncomeEdit").classList.add("hidden"); }
 function renderRecurringCalendar() {
   const calendar = $("recurringCalendarGrid");
   if (!calendar) return;
@@ -1533,6 +1628,7 @@ function renderRecurringPayments() {
   if ($("recurringNextName")) $("recurringNextName").textContent = upcoming.length ? `${upcoming[0].item.name}・${yen(upcoming[0].item.amount)}・${recurringBankLabel(upcoming[0].item.bankAccountId)}` : "定期支払いを登録してください";
 
   renderRecurringCalendar();
+  renderRecurringIncomes();
 
   const listEl = $("recurringPaymentList");
   if (listEl) listEl.innerHTML = list.length ? list.slice().sort((a,b)=>(recurringNextOccurrence(a, now)?.getTime()||Infinity)-(recurringNextOccurrence(b, now)?.getTime()||Infinity)).map(item => {
@@ -2620,6 +2716,16 @@ document.addEventListener("click", event => {
 $("recurringCalendarPrev")?.addEventListener("click", () => shiftRecurringCalendarMonth(-1));
 $("recurringCalendarNext")?.addEventListener("click", () => shiftRecurringCalendarMonth(1));
 $("recurringCalendarToday")?.addEventListener("click", () => { recurringCalendarMonth = monthKey(); renderRecurringPayments(); });
+$("saveRecurringIncomeButton")?.addEventListener("click",()=>{
+  const name=$("recurringIncomeName").value.trim(), amount=num($("recurringIncomeAmount").value); if(!name)return alert("項目名を入力してください"); if(!amount)return alert("金額を入力してください");
+  const id=$("recurringIncomeId").value||uid(); const item={id,name,category:$("recurringIncomeCategory").value,amount,intervalMonths:Number($("recurringIncomeInterval").value)||1,depositDay:Math.min(31,Math.max(1,Number($("recurringIncomeDay").value)||1)),startDate:$("recurringIncomeStart").value||today(),endDate:$("recurringIncomeEnd").value||"",bankAccountId:$("recurringIncomeBank").value||"",memo:$("recurringIncomeMemo").value.trim(),active:true};
+  const index=state.recurringIncomes.findIndex(x=>x.id===id); if(index>=0)state.recurringIncomes[index]=item;else state.recurringIncomes.push(item); saveState(); clearRecurringIncomeForm(); renderAll();
+});
+$("cancelRecurringIncomeEdit")?.addEventListener("click",clearRecurringIncomeForm);
+document.addEventListener("click",event=>{
+  const edit=event.target.closest("[data-edit-income]"); if(edit){const item=state.recurringIncomes.find(x=>x.id===edit.dataset.editIncome); if(!item)return; $("recurringIncomeId").value=item.id; $("recurringIncomeName").value=item.name; $("recurringIncomeCategory").value=item.category||"給与"; $("recurringIncomeAmount").value=item.amount||""; $("recurringIncomeInterval").value=String(item.intervalMonths||1); $("recurringIncomeDay").value=item.depositDay||1; $("recurringIncomeStart").value=item.startDate||today(); $("recurringIncomeEnd").value=item.endDate||""; $("recurringIncomeBank").value=item.bankAccountId||""; $("recurringIncomeMemo").value=item.memo||""; $("saveRecurringIncomeButton").textContent="変更を保存"; $("cancelRecurringIncomeEdit").classList.remove("hidden"); $("recurringIncomeEditor").open=true; $("recurringIncomeEditor").scrollIntoView({behavior:"smooth",block:"start"}); return;}
+  const del=event.target.closest("[data-delete-income]"); if(del&&confirm("この定期入金を削除しますか？")){state.recurringIncomes=state.recurringIncomes.filter(x=>x.id!==del.dataset.deleteIncome); saveState(); renderAll();}
+});
 $("saveBaseButton").addEventListener("click", () => {
   state.unallocatedCash = num($("cashInput").value); syncCashFromBanks(); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
@@ -2629,7 +2735,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta27-payment-calendar", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta28-cashflow-forecast", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {

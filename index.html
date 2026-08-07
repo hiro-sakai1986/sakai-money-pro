@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第27弾 引き落としカレンダー版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第28弾 キャッシュフロー予測版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=27">
+  <link rel="stylesheet" href="./style.css?v=28">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第27弾・引き落としカレンダー版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第28弾・キャッシュフロー予測版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -281,6 +281,47 @@
         <p class="form-note recurring-forecast-note">現在残高から登録済みの引き落とし予定だけを差し引いた目安です。給与・入金・臨時支出は含みません。</p>
         <div id="recurringAccountForecast" class="recurring-account-list"></div>
       </article>
+      <div class="section-heading cashflow-heading">
+        <div><p>CASH FLOW FORECAST</p><h2>入出金・残高予測</h2></div>
+        <span id="recurringIncomeCount" class="future-snapshot-chip">0件</span>
+      </div>
+      <article class="card cashflow-forecast-card">
+        <div class="cashflow-forecast-head">
+          <div><span>選択月</span><strong id="cashflowMonthLabel">—</strong></div>
+          <small>引き落としカレンダーと同じ月を表示</small>
+        </div>
+        <div class="cashflow-summary-grid">
+          <div class="cashflow-summary income"><span>入金予定</span><strong id="cashflowIncomeTotal">¥0</strong></div>
+          <div class="cashflow-summary expense"><span>引落予定</span><strong id="cashflowExpenseTotal">¥0</strong></div>
+          <div class="cashflow-summary balance"><span>予定収支</span><strong id="cashflowNetTotal">¥0</strong></div>
+          <div class="cashflow-summary"><span>登録入金</span><strong id="cashflowIncomeItems">0件</strong></div>
+        </div>
+        <div id="cashflowForecastList" class="cashflow-forecast-list"></div>
+        <p class="form-note">給与・ボーナス・児童手当などの定期入金に加え、登録済みの保険受取予定と配当予想も月次収支へ加えます。配当予想と受取口座未設定の保険金は、口座別残高には加算しません。</p>
+      </article>
+      <article class="card recurring-account-forecast cashflow-account-forecast">
+        <div class="subsection-title"><p>ACCOUNT CASH FLOW</p><h3>口座別・入出金後の残高見込み</h3></div>
+        <p class="form-note recurring-forecast-note">現在残高に、受取口座を指定した定期入金を加え、登録済みの引き落としを差し引いた予測です。実際の銀行残高は変更しません。</p>
+        <div id="cashflowAccountForecast" class="recurring-account-list"></div>
+      </article>
+      <details id="recurringIncomeEditor" class="card form-card editor-details recurring-editor income-editor">
+        <summary>＋ 定期入金を追加・編集</summary>
+        <input id="recurringIncomeId" type="hidden">
+        <div class="form-grid">
+          <label>項目名<input id="recurringIncomeName" placeholder="例：本人 給与"></label>
+          <label>カテゴリ<select id="recurringIncomeCategory"><option>給与</option><option>ボーナス</option><option>児童手当</option><option>年金</option><option>家族手当</option><option>副収入</option><option>その他</option></select></label>
+          <label>金額（円）<input id="recurringIncomeAmount" type="number" min="0" inputmode="numeric"></label>
+          <label>入金間隔<select id="recurringIncomeInterval"><option value="1">毎月</option><option value="2">2か月ごと</option><option value="3">3か月ごと</option><option value="6">6か月ごと</option><option value="12">毎年</option></select></label>
+          <label>入金日<input id="recurringIncomeDay" type="number" min="1" max="31" inputmode="numeric" placeholder="例：25"></label>
+          <label>開始日<input id="recurringIncomeStart" type="date"></label>
+          <label>終了日<input id="recurringIncomeEnd" type="date"></label>
+          <label>入金口座<select id="recurringIncomeBank"><option value="">口座を選択</option></select></label>
+          <label class="full">メモ<input id="recurringIncomeMemo" placeholder="任意"></label>
+        </div>
+        <p class="form-note">給与・ボーナス・児童手当など、定期的に入るお金を登録します。入金口座を指定すると、口座別の将来残高にも反映します。</p>
+        <div class="button-row"><button class="primary" id="saveRecurringIncomeButton">定期入金を保存</button><button class="secondary hidden" id="cancelRecurringIncomeEdit">編集を取消</button></div>
+      </details>
+      <div id="recurringIncomeList" class="stack recurring-payment-list recurring-income-list"></div>
       <details id="recurringPaymentEditor" class="card form-card editor-details recurring-editor">
         <summary>＋ 定期支払いを追加・編集</summary>
         <input id="recurringPaymentId" type="hidden">
@@ -763,6 +804,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=27"></script>
+  <script src="./app.js?v=28"></script>
 </body>
 </html>
