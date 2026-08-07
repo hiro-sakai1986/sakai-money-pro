@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#f4f2f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>サカイ家 MONEY Pro 8.0 Beta 第29弾 年間キャッシュフロー予測版</title>
+  <title>サカイ家 MONEY Pro 8.0 Beta 第30弾 保険受取・家計収入連携版</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./style.css?v=29">
+  <link rel="stylesheet" href="./style.css?v=30">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow" id="greeting">こんばんは、ヒロ</p>
       <h1>サカイ家 MONEY Pro</h1>
-      <p class="subtitle"><span class="version-pill">8.0 Beta 第29弾・年間キャッシュフロー予測版</span> 家計・投資・未来をひとつに</p>
+      <p class="subtitle"><span class="version-pill">8.0 Beta 第30弾・保険受取 家計収入連携版</span> 家計・投資・未来をひとつに</p>
     </div>
     <button class="icon-button" id="themeButton" aria-label="表示切替">🌙</button>
   </header>
@@ -397,6 +397,7 @@
           <label class="full">メモ<input id="txMemo" placeholder="任意"></label>
         </div>
         <datalist id="txCategorySuggestions"><option value="給与"><option value="ボーナス"><option value="食費"><option value="日用品"><option value="教育"><option value="光熱費"><option value="通信"><option value="住宅"><option value="車"><option value="医療"><option value="娯楽"><option value="特別費"><option value="その他"></datalist>
+        <p class="form-note">学資保険・個人年金などの受取日は、保険管理に登録しておけばこの家計の「収入」へ自動反映されます。同じ受取をここで手入力する必要はありません。</p>
         <div class="button-row"><button class="primary" id="addTxButton">家計を追加</button><button class="secondary hidden" id="cancelTxEdit">編集を取消</button></div>
       </article>
 
@@ -742,6 +743,11 @@
             <label>1回の受取額（円）<input id="insurancePayoutAmount" type="number" min="0" inputmode="numeric"></label>
             <label>受取回数<input id="insurancePayoutCount" type="number" min="0" inputmode="numeric" placeholder="一括なら1"></label>
             <label>受取人<input id="insuranceBeneficiary" placeholder="任意"></label>
+            <div class="full insurance-calc-preview">
+              <div><span>払込予定総額</span><strong id="insurancePaidTotalPreview">—</strong></div>
+              <div><span>受取予定総額</span><strong id="insurancePlannedTotalPreview">—</strong></div>
+              <div><span>受取 − 払込</span><strong id="insuranceReturnDifferencePreview">—</strong></div>
+            </div>
             <label class="full checkbox-label"><input id="insuranceIncludeAssets" type="checkbox"> 現在の解約返戻金・積立額を金融資産へ含める</label>
             <label class="full">メモ<textarea id="insuranceMemo" rows="2" placeholder="保障内容・証券番号の末尾など（重要情報は入れすぎない）"></textarea></label>
           </div>
@@ -831,6 +837,6 @@
     <button class="nav-button" data-screen="educationScreen"><span>◎</span>ライフ</button>
     <button class="nav-button" data-screen="settingsScreen"><span>⚙</span>設定</button>
   </nav>
-  <script src="./app.js?v=29"></script>
+  <script src="./app.js?v=30"></script>
 </body>
 </html>
