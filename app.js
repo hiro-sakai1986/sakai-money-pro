@@ -1373,6 +1373,45 @@ function recurringIntervalLabel(months) {
   const n = Number(months) || 1;
   return n === 1 ? "毎月" : n === 12 ? "毎年" : `${n}か月ごと`;
 }
+let recurringCalendarMonth = monthKey();
+function recurringMonthDate(key = recurringCalendarMonth) {
+  const [year, month] = String(key || monthKey()).split("-").map(Number);
+  return new Date(year || new Date().getFullYear(), Math.max(0, (month || 1) - 1), 1, 12, 0, 0, 0);
+}
+function shiftRecurringCalendarMonth(delta) {
+  const d = recurringMonthDate();
+  d.setMonth(d.getMonth() + Number(delta || 0));
+  recurringCalendarMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  renderRecurringPayments();
+}
+function recurringOccurrencesBetween(item, startDate, endDate) {
+  const results = [];
+  if (item.active === false || !startDate || !endDate || startDate > endDate) return results;
+  const firstMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1, 0, 0, 0, 0);
+  const lastMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1, 0, 0, 0, 0);
+  let cursor = new Date(firstMonth);
+  let guard = 0;
+  while (cursor <= lastMonth && guard < 600) {
+    recurringOccurrencesInMonth(item, cursor.getFullYear(), cursor.getMonth()).forEach(date => {
+      if (date >= startDate && date <= endDate) results.push(date);
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+    guard += 1;
+  }
+  return results;
+}
+function recurringCategoryIcon(category) {
+  const text = String(category || "");
+  if (/保険/.test(text)) return "🛡";
+  if (/住宅/.test(text)) return "🏠";
+  if (/通信/.test(text)) return "📱";
+  if (/光熱/.test(text)) return "💡";
+  if (/教育|習い事/.test(text)) return "🎓";
+  if (/サブスク/.test(text)) return "▶";
+  if (/カード/.test(text)) return "💳";
+  if (/税/.test(text)) return "🧾";
+  return "¥";
+}
 function safePaymentDate(year, monthIndex, day) {
   const last = new Date(year, monthIndex + 1, 0).getDate();
   return new Date(year, monthIndex, Math.min(Math.max(1, Number(day) || 1), last), 12, 0, 0, 0);
@@ -1403,6 +1442,78 @@ function recurringOccurrencesInMonth(item, year, monthIndex) {
   const next = recurringNextOccurrence(item, monthStart);
   return next && next <= monthEnd ? [next] : [];
 }
+function renderRecurringCalendar() {
+  const calendar = $("recurringCalendarGrid");
+  if (!calendar) return;
+  const anchor = recurringMonthDate();
+  const year = anchor.getFullYear(), monthIndex = anchor.getMonth();
+  const monthItems = (state.recurringPayments || []).flatMap(item =>
+    recurringOccurrencesInMonth(item, year, monthIndex).map(date => ({ item, date }))
+  ).sort((a,b) => a.date - b.date || String(a.item.name).localeCompare(String(b.item.name), "ja"));
+  const total = monthItems.reduce((sum, x) => sum + num(x.item.amount), 0);
+  const days = new Set(monthItems.map(x => x.date.getDate())).size;
+  if ($("recurringCalendarMonthLabel")) $("recurringCalendarMonthLabel").textContent = `${year}年${monthIndex + 1}月`;
+  if ($("recurringCalendarTotal")) $("recurringCalendarTotal").textContent = yen(total);
+  if ($("recurringCalendarDays")) $("recurringCalendarDays").textContent = `${days}日`;
+  if ($("recurringCalendarCount")) $("recurringCalendarCount").textContent = `${monthItems.length}件`;
+
+  const weekdays = ["日","月","火","水","木","金","土"];
+  const weekdayHtml = weekdays.map((d,i)=>`<div class="recurring-calendar-weekday ${i===0?"sun":i===6?"sat":""}">${d}</div>`).join("");
+  const firstDow = new Date(year, monthIndex, 1).getDay();
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  const todayDate = new Date();
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push('<div class="recurring-calendar-day is-blank"></div>');
+  for (let day = 1; day <= lastDay; day++) {
+    const items = monthItems.filter(x => x.date.getDate() === day);
+    const dayTotal = items.reduce((sum,x)=>sum+num(x.item.amount),0);
+    const isToday = todayDate.getFullYear()===year && todayDate.getMonth()===monthIndex && todayDate.getDate()===day;
+    const dow = new Date(year, monthIndex, day).getDay();
+    const events = items.slice(0,2).map(x=>`<div class="calendar-payment-event" title="${escapeHtml(x.item.name)}"><span>${recurringCategoryIcon(x.item.category)}</span><b>${escapeHtml(x.item.name)}</b><em>${yen(x.item.amount)}</em></div>`).join("");
+    const more = items.length > 2 ? `<small class="calendar-payment-more">ほか${items.length-2}件</small>` : "";
+    cells.push(`<div class="recurring-calendar-day ${isToday?"is-today":""} ${items.length?"has-payment":""} ${dow===0?"sun":dow===6?"sat":""}"><div class="calendar-day-number">${day}</div>${events}${more}${items.length?`<div class="calendar-day-total">${yen(dayTotal)}</div>`:""}</div>`);
+  }
+  calendar.innerHTML = weekdayHtml + cells.join("");
+
+  const detail = $("recurringCalendarList");
+  if (detail) detail.innerHTML = monthItems.length ? monthItems.map(({item,date}) =>
+    `<div class="calendar-list-row"><div class="calendar-list-date"><strong>${date.getDate()}</strong><small>${date.toLocaleDateString("ja-JP",{weekday:"short"})}</small></div><div class="calendar-list-main"><span>${recurringCategoryIcon(item.category)} ${escapeHtml(item.category)}</span><b>${escapeHtml(item.name)}</b><small>${escapeHtml(recurringBankLabel(item.bankAccountId))}</small></div><strong>${yen(item.amount)}</strong></div>`
+  ).join("") : '<div class="empty">この月の引き落とし予定はありません。</div>';
+
+  const accountForecast = $("recurringAccountForecast");
+  if (accountForecast) {
+    const now = new Date();
+    const selectedMonthStart = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+    const selectedMonthEnd = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+    const isFutureOrCurrent = selectedMonthEnd >= now;
+    const forecastStart = isFutureOrCurrent ? now : selectedMonthStart;
+    const groupedSelected = new Map();
+    monthItems.forEach(({item})=>{
+      const id=item.bankAccountId||"__unset__";
+      groupedSelected.set(id,(groupedSelected.get(id)||0)+num(item.amount));
+    });
+    const allAccountIds = new Set([...groupedSelected.keys()]);
+    const rows=[...allAccountIds].map(id=>{
+      const account=(state.bankAccounts||[]).find(a=>a.id===id);
+      const selectedScheduled=groupedSelected.get(id)||0;
+      let untilEnd=selectedScheduled;
+      if (account && isFutureOrCurrent) {
+        untilEnd=(state.recurringPayments||[]).filter(x=>(x.bankAccountId||"__unset__")===id).reduce((sum,item)=>
+          sum + recurringOccurrencesBetween(item, forecastStart, selectedMonthEnd).length * num(item.amount),0);
+      }
+      const balance=account?num(account.balance):0;
+      const after=account ? balance-untilEnd : 0;
+      const warning=account && after<0;
+      const sub=account
+        ? (isFutureOrCurrent && recurringCalendarMonth!==monthKey()
+            ? `現在 ${yen(balance)}・今月〜${monthIndex+1}月予定 ${yen(untilEnd)}`
+            : `現在 ${yen(balance)}・選択月予定 ${yen(selectedScheduled)}`)
+        : "引落口座を設定してください";
+      return `<div class="recurring-account-row ${warning?"is-warning":""}"><div><strong>${escapeHtml(account?recurringBankLabel(id):"引落口座未設定")}</strong><small>${sub}</small></div><div><span>${year}年${monthIndex+1}月 ${yen(selectedScheduled)}</span><b>${account?`月末見込み ${yen(after)}`:"—"}</b>${warning?'<em>残高不足の見込み</em>':""}</div></div>`;
+    });
+    accountForecast.innerHTML=rows.length?rows.join(""):'<div class="empty">この月の引落予定はありません。</div>';
+  }
+}
 function renderRecurringPayments() {
   const list = state.recurringPayments || [];
   const bankSelect = $("recurringPaymentBank");
@@ -1421,22 +1532,7 @@ function renderRecurringPayments() {
   if ($("recurringNextDate")) $("recurringNextDate").textContent = upcoming.length ? upcoming[0].date.toLocaleDateString("ja-JP", {month:"numeric",day:"numeric"}) : "登録なし";
   if ($("recurringNextName")) $("recurringNextName").textContent = upcoming.length ? `${upcoming[0].item.name}・${yen(upcoming[0].item.amount)}・${recurringBankLabel(upcoming[0].item.bankAccountId)}` : "定期支払いを登録してください";
 
-  const accountForecast = $("recurringAccountForecast");
-  if (accountForecast) {
-    const grouped = new Map();
-    monthItems.forEach(({item}) => {
-      const id = item.bankAccountId || "__unset__";
-      grouped.set(id, (grouped.get(id) || 0) + num(item.amount));
-    });
-    const rows = [...grouped.entries()].map(([id, scheduled]) => {
-      const account = (state.bankAccounts || []).find(a => a.id === id);
-      const balance = account ? num(account.balance) : 0;
-      const after = balance - scheduled;
-      const warning = account && after < 0;
-      return `<div class="recurring-account-row ${warning ? "is-warning" : ""}"><div><strong>${escapeHtml(account ? recurringBankLabel(id) : "引落口座未設定")}</strong><small>${account ? `現在 ${yen(balance)}` : "口座を設定してください"}</small></div><div><span>今月予定 ${yen(scheduled)}</span><b>${account ? `引落後 ${yen(after)}` : "—"}</b>${warning ? '<em>残高不足の見込み</em>' : ""}</div></div>`;
-    });
-    accountForecast.innerHTML = rows.length ? rows.join("") : '<div class="empty">今月の引落予定はありません。</div>';
-  }
+  renderRecurringCalendar();
 
   const listEl = $("recurringPaymentList");
   if (listEl) listEl.innerHTML = list.length ? list.slice().sort((a,b)=>(recurringNextOccurrence(a, now)?.getTime()||Infinity)-(recurringNextOccurrence(b, now)?.getTime()||Infinity)).map(item => {
@@ -2521,6 +2617,9 @@ document.addEventListener("click", event => {
     saveState(); renderAll();
   }
 });
+$("recurringCalendarPrev")?.addEventListener("click", () => shiftRecurringCalendarMonth(-1));
+$("recurringCalendarNext")?.addEventListener("click", () => shiftRecurringCalendarMonth(1));
+$("recurringCalendarToday")?.addEventListener("click", () => { recurringCalendarMonth = monthKey(); renderRecurringPayments(); });
 $("saveBaseButton").addEventListener("click", () => {
   state.unallocatedCash = num($("cashInput").value); syncCashFromBanks(); state.loan = num($("loanInput").value); state.mortgage.balance = state.loan; state.mortgage.originalBalance = Math.max(num(state.mortgage.originalBalance), state.loan); state.assetGoal = num($("assetGoalInput").value) || defaultState.assetGoal;
   saveState(); renderAll(); alert("基本情報と資産目標を保存しました");
@@ -2530,7 +2629,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta26-recurring-payments", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta27-payment-calendar", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
