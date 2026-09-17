@@ -163,9 +163,4 @@ body.dark{--accent:#a78bfa;--accent2:#f472b6}
 @media(max-width:520px){.annual-cashflow-card{padding:20px 17px}.annual-cashflow-head{grid-template-columns:38px 1fr 38px auto}.annual-cashflow-summary-grid{grid-template-columns:1fr 1fr}.annual-cashflow-chart{gap:3px;height:132px}.annual-month-row{grid-template-columns:38px 1fr 1fr auto 30px;gap:5px;font-size:.78rem}.annual-month-row b{font-size:.8rem}}
 
 
-/* Beta 30: 保険の自動計算プレビュー */
-.insurance-calc-preview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:4px 0 2px}
-.insurance-calc-preview>div{background:var(--surface-soft,#f7f7f8);border:1px solid var(--line,#e7e7ea);border-radius:14px;padding:12px}
-.insurance-calc-preview span{display:block;font-size:12px;color:var(--muted,#777);margin-bottom:5px}
-.insurance-calc-preview strong{font-size:16px}
-@media(max-width:640px){.insurance-calc-preview{grid-template-columns:1fr}.insurance-calc-preview>div{padding:10px 12px}}
+.sale-entry-details{margin-top:16px}.sale-history-title{margin-top:18px}.investment-item-card .secondary{padding:8px 10px}
