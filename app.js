@@ -30,6 +30,7 @@ const defaultState = {
   futureSimulation: { annualReturn: 3, monthlyExtra: 0, horizon: 20 },
   dark: false,
   assets: [],
+  stockSales: [],
   plans: [],
   nisaUsage: {},
   nisaPurchases: [],
@@ -99,12 +100,15 @@ function normalize(raw) {
   s.assets = Array.isArray(s.assets)
     ? s.assets.map(asset => ({ ...asset, owner: normalizeOwner(asset?.owner) }))
     : [];
+  s.stockSales = Array.isArray(s.stockSales) ? s.stockSales : [];
   s.plans = Array.isArray(s.plans)
     ? s.plans.map(plan => ({
         ...plan,
         owner: normalizeOwner(plan?.owner),
         method: plan?.method === "lump" ? "lump" : "monthly",
-        invested: plan?.invested === "" || plan?.invested == null ? null : num(plan.invested)
+        invested: plan?.invested === "" || plan?.invested == null ? null : num(plan.invested),
+        active: plan?.active !== false,
+        stoppedAt: plan?.stoppedAt || ""
       }))
     : [];
   s.nisaUsage = s.nisaUsage && typeof s.nisaUsage === "object" && !Array.isArray(s.nisaUsage) ? s.nisaUsage : {};
@@ -483,7 +487,7 @@ function nisaPlanKind(account) {
 function nisaMonthlySettings(owner) {
   const totals = { tsumitate: 0, growth: 0, unclassified: 0 };
   for (const plan of state.plans) {
-    if (normalizeOwner(plan?.owner) !== owner || plan?.method === "lump") continue;
+    if (normalizeOwner(plan?.owner) !== owner || plan?.method === "lump" || plan?.active === false) continue;
     const monthly = num(plan?.monthly);
     if (!monthly) continue;
     const kind = nisaPlanKind(plan?.account);
@@ -573,24 +577,8 @@ function investmentTotals(owner = null) {
   }
   return total;
 }
-function insuranceIncomeTransactions(month = monthKey()) {
-  return allInsuranceReceiptEvents()
-    .filter(x => String(x.date).startsWith(month))
-    .map(x => ({
-      id: `insurance-${x.policyId}-${x.date}`,
-      date: x.date,
-      kind: "income",
-      category: x.category === "学資保険" ? "学資保険受取" : x.category === "個人年金" ? "個人年金受取" : "保険受取",
-      amount: num(x.amount),
-      memo: `${x.name}（保険管理から自動反映）`,
-      automatic: true,
-      source: "insurance"
-    }));
-}
 function budgetTotals(month = monthKey()) {
-  const manual = state.transactions.filter(t => String(t.date).startsWith(month));
-  const automaticInsurance = insuranceIncomeTransactions(month);
-  return [...manual, ...automaticInsurance].reduce((s, t) => {
+  return state.transactions.filter(t => String(t.date).startsWith(month)).reduce((s, t) => {
     s[t.kind] += num(t.amount); return s;
   }, { income: 0, expense: 0 });
 }
@@ -1314,7 +1302,6 @@ function renderHistoryDashboard() {
 function setupMonthOptions() {
   const previous = $("txMonth").value;
   const months = new Set(state.transactions.map(t => monthKey(t.date)));
-  allInsuranceReceiptEvents().forEach(x => months.add(monthKey(x.date)));
   const now = new Date();
   for (let i = 0; i < 12; i += 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -1329,9 +1316,7 @@ function setupMonthOptions() {
 }
 function renderBudgetDashboard() {
   const month = selectedBudgetMonth(), totals = budgetTotals(month), balance = totals.income - totals.expense;
-  const manualMonthItems = state.transactions.filter(t => String(t.date).startsWith(month));
-  const automaticInsuranceItems = insuranceIncomeTransactions(month);
-  const monthItems = [...manualMonthItems, ...automaticInsuranceItems];
+  const monthItems = state.transactions.filter(t => String(t.date).startsWith(month));
   const incomeCount = monthItems.filter(t => t.kind === "income").length;
   const expenseCount = monthItems.filter(t => t.kind === "expense").length;
   const savingsRate = totals.income ? balance / totals.income * 100 : 0;
@@ -1749,15 +1734,8 @@ function clearRecurringPaymentForm() {
 function renderTransactions() {
   setupMonthOptions();
   const query = $("txSearch").value.trim().toLowerCase(), month = selectedBudgetMonth();
-  const manual = state.transactions.filter(t => String(t.date).startsWith(month));
-  const automaticInsurance = insuranceIncomeTransactions(month);
-  const list = [...manual, ...automaticInsurance]
-    .filter(t => `${t.category} ${t.memo}`.toLowerCase().includes(query))
-    .sort((a, b) => b.date.localeCompare(a.date));
-  $("txList").innerHTML = list.length ? list.map(t => {
-    const actions = t.automatic ? `<div class="tx-actions"><span class="insurance-category-chip">自動反映</span></div>` : `<div class="tx-actions"><button class="edit-button" data-edit-tx="${t.id}">編集</button><button class="delete-button" data-delete-tx="${t.id}">削除</button></div>`;
-    return `<article class="item-card compact transaction-card"><div><div class="item-title">${escapeHtml(t.category || "未分類")}</div><div class="item-sub">${escapeHtml(t.date)}${t.memo ? `・${escapeHtml(t.memo)}` : ""}</div></div><div class="tx-right"><strong class="${t.kind === 'expense' ? 'negative' : 'positive'}">${t.kind === 'expense' ? '-' : '+'}${yen(t.amount)}</strong>${actions}</div></article>`;
-  }).join("") : `<div class="empty">この月の記録はありません。</div>`;
+  const list = state.transactions.filter(t => String(t.date).startsWith(month) && `${t.category} ${t.memo}`.toLowerCase().includes(query)).sort((a, b) => b.date.localeCompare(a.date));
+  $("txList").innerHTML = list.length ? list.map(t => `<article class="item-card compact transaction-card"><div><div class="item-title">${escapeHtml(t.category || "未分類")}</div><div class="item-sub">${escapeHtml(t.date)}${t.memo ? `・${escapeHtml(t.memo)}` : ""}</div></div><div class="tx-right"><strong class="${t.kind === 'expense' ? 'negative' : 'positive'}">${t.kind === 'expense' ? '-' : '+'}${yen(t.amount)}</strong><div class="tx-actions"><button class="edit-button" data-edit-tx="${t.id}">編集</button><button class="delete-button" data-delete-tx="${t.id}">削除</button></div></div></article>`).join("") : `<div class="empty">この月の記録はありません。</div>`;
   renderBudgetDashboard();
 }
 function assetDividendYield(a) {
@@ -1766,7 +1744,11 @@ function assetDividendYield(a) {
 }
 function planMetrics(p) {
   const method = p.method === "lump" ? "lump" : "monthly";
-  const months = method === "monthly" ? monthsSince(p.start) : 0;
+  let months = method === "monthly" ? monthsSince(p.start) : 0;
+  if (method === "monthly" && p.active === false && p.stoppedAt && p.start) {
+    const a = new Date(`${p.start}T00:00:00`), b = new Date(`${p.stoppedAt}T00:00:00`);
+    if (!Number.isNaN(a.getTime()) && !Number.isNaN(b.getTime())) months = Math.max(0, (b.getFullYear()-a.getFullYear())*12 + b.getMonth()-a.getMonth()+1);
+  }
   const estimated = method === "monthly" ? months * num(p.monthly) : 0;
   const hasActualInvested = p.invested !== "" && p.invested != null;
   const contributed = hasActualInvested ? num(p.invested) : estimated;
@@ -2048,14 +2030,28 @@ function renderAssets() {
     const m = assetMetrics(a), share = totalMarket ? m.market/totalMarket*100 : 0;
     const priceMissing = num(a.quantity)>0 && num(a.price)<=0;
     const nisaButton = currentOwner !== "家族合計" && nisaPlanKind(a.account) ? `<button class="record-button" data-record-asset="${a.id}">買付を記録</button>` : "";
-    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${escapeHtml(a.type)}</span><span class="account-chip">${escapeHtml(a.account)}</span>${priceMissing?'<span class="missing-chip">価格未入力</span>':''}</div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}・構成比 ${share.toFixed(1)}%</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="holding-progress"><div style="width:${Math.min(100,share)}%"></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions">${nisaButton}<button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${escapeHtml(a.type)}</span><span class="account-chip">${escapeHtml(a.account)}</span>${priceMissing?'<span class="missing-chip">価格未入力</span>':''}</div><div class="item-title">${escapeHtml(a.name)}</div><div class="item-sub">${escapeHtml(a.owner)}${a.broker ? `・${escapeHtml(a.broker)}` : ""}・構成比 ${share.toFixed(1)}%</div></div><div class="item-value">${yen(m.market)}<small class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}（${m.rate.toFixed(1)}%）</small></div></div><div class="holding-progress"><div style="width:${Math.min(100,share)}%"></div></div><div class="item-grid"><div><span>保有数</span><strong>${num(a.quantity).toLocaleString("ja-JP")}</strong></div><div><span>取得単価</span><strong>${yen(a.cost)}</strong></div><div><span>現在価格</span><strong>${yen(a.price)}</strong></div><div><span>取得総額</span><strong>${yen(m.invested)}</strong></div><div><span>年間配当</span><strong>${yen(a.dividend)}</strong></div><div><span>入力日</span><strong>${escapeHtml(a.date || "—")}</strong></div></div><div class="item-actions">${nisaButton}<button class="record-button" data-sell-asset="${a.id}">売却</button><button class="edit-button" data-edit-asset="${a.id}">編集</button><button class="delete-button" data-delete-asset="${a.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">条件に合う保有資産はありません。</div>`;
 }
+function renderStockSaleOptions(selectedId="") {
+  const el = $("saleAssetId"); if (!el) return;
+  const list = visibleAssets().filter(a => num(a.quantity) > 0);
+  el.innerHTML = '<option value="">銘柄を選択</option>' + list.map(a => `<option value="${a.id}">${escapeHtml(a.name)}（${num(a.quantity).toLocaleString("ja-JP")}株・${escapeHtml(a.broker||"")}）</option>`).join("");
+  if (selectedId) el.value = selectedId;
+  const bank = $("saleBankAccountId");
+  if (bank) bank.innerHTML = '<option value="">口座残高には反映しない</option>' + state.bankAccounts.map(b => `<option value="${b.id}">${escapeHtml(b.owner)}・${escapeHtml(b.bankName)}（${yen(b.balance)}）</option>`).join("");
+}
+function renderStockSales() {
+  const el=$("stockSaleHistory"); if(!el) return;
+  const list=(state.stockSales||[]).filter(v=>currentOwner==="家族合計"||normalizeOwner(v.owner)===currentOwner).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  el.innerHTML=list.length?list.map(v=>`<article class="item-card"><div class="item-head"><div><div class="item-title">${escapeHtml(v.name)} ${num(v.quantity).toLocaleString("ja-JP")}株 売却</div><div class="item-sub">${escapeHtml(v.date)}・${escapeHtml(v.broker||"")}・${escapeHtml(v.account||"")}</div></div><div class="item-value">${yen(v.netProceeds)}<small class="${num(v.realizedProfit)<0?'negative':'positive'}">実現損益 ${signedYen(v.realizedProfit)}</small></div></div></article>`).join(""):'<div class="empty">売却履歴はまだありません。</div>';
+}
+function clearStockSaleForm(){ if(!$("saleAssetId"))return; renderStockSaleOptions(); $("saleDate").value=today(); ["saleQuantity","salePrice","saleFee"].forEach(id=>$(id).value=""); }
 function renderPlans() {
   const list = visiblePlans();
   const totals = list.reduce((acc, p) => {
     const m = planMetrics(p);
-    if (m.method === "monthly") acc.monthly += num(p.monthly);
+    if (m.method === "monthly" && p.active !== false) acc.monthly += num(p.monthly);
     acc.value += m.value;
     acc.contributed += m.contributed;
     acc.profit += m.profit;
@@ -2070,14 +2066,15 @@ function renderPlans() {
   $("planProfitTotalView").className = totals.profit < 0 ? "negative" : "positive";
   $("planList").innerHTML = list.length ? list.map(p => {
     const m = planMetrics(p);
-    const methodLabel = m.method === "monthly" ? "毎月積立" : "一括購入";
-    const mainAmount = m.method === "monthly" ? `月 ${yen(p.monthly)}` : "一括購入";
+    const methodLabel = m.method === "monthly" ? (p.active === false ? "積立停止" : "毎月積立") : "一括購入";
+    const mainAmount = m.method === "monthly" ? (p.active === false ? `停止中・旧設定 月 ${yen(p.monthly)}` : `月 ${yen(p.monthly)}`) : "一括購入";
     const periodLabel = m.method === "monthly" ? "積立月数" : "買付方法";
     const periodValue = m.method === "monthly" ? `${m.months}か月` : "一括";
     const sourceChip = m.contributionSource === "estimated" ? '<span class="estimate-chip">元本は推定</span>' : '';
     const profitLabel = m.contributionSource === "estimated" ? "推定評価損益" : "評価損益";
-    const nisaButton = currentOwner !== "家族合計" && nisaPlanKind(p.account) ? `<button class="record-button" data-record-plan="${p.id}">買付を記録</button>` : "";
-    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions">${nisaButton}<button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
+    const nisaButton = currentOwner !== "家族合計" && nisaPlanKind(p.account) && p.active !== false ? `<button class="record-button" data-record-plan="${p.id}">買付を記録</button>` : "";
+    const stopButton = m.method === "monthly" ? `<button class="secondary" data-toggle-plan="${p.id}">${p.active === false ? "積立を再開" : "積立を停止"}</button>` : "";
+    return `<article class="item-card investment-item-card"><div class="item-head"><div><div class="investment-chip-row"><span class="asset-type-chip">${methodLabel}</span><span class="account-chip">${escapeHtml(p.account)}</span>${sourceChip}</div><div class="item-title">${escapeHtml(p.name)}</div><div class="item-sub">${escapeHtml(p.owner)}${p.broker ? `・${escapeHtml(p.broker)}` : ""}</div></div><div class="item-value">${mainAmount}<small class="${m.profit < 0 ? 'negative' : 'positive'}">評価 ${yen(m.value)}</small></div></div><div class="item-grid"><div><span>${m.method === "monthly" ? "積立開始日" : "購入日"}</span><strong>${escapeHtml(p.start || "—")}</strong></div><div><span>${periodLabel}</span><strong>${periodValue}</strong></div><div><span>累計買付額</span><strong>${yen(m.contributed)}</strong></div><div><span>${profitLabel}</span><strong class="${m.profit < 0 ? 'negative' : 'positive'}">${signedYen(m.profit)}</strong></div></div><div class="item-actions">${nisaButton}${stopButton}<button class="edit-button" data-edit-plan="${p.id}">編集</button><button class="delete-button" data-delete-plan="${p.id}">削除</button></div></article>`;
   }).join("") : `<div class="empty">積立・NISA商品はまだありません。</div>`;
 }
 function currentDividendYear() { return new Date().getFullYear(); }
@@ -2250,30 +2247,6 @@ function insurancePlannedReceiptTotal(item) {
   const count=item.payoutType==="lump" ? (amount?1:0) : Math.max(0,Math.floor(num(item.payoutCount)));
   return amount*count;
 }
-function insurancePlannedPremiumTotal(item) {
-  const premium = num(item.premium);
-  if (!premium || !item.startDate || !item.paymentEndDate) return 0;
-  const start = new Date(`${item.startDate}T12:00:00`), end = new Date(`${item.paymentEndDate}T12:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
-  const step = item.paymentFrequency === "annual" ? 12 : 1;
-  let count = 0, cursor = new Date(start);
-  while (cursor <= end && count < 1200) { count += 1; cursor.setMonth(cursor.getMonth() + step); }
-  return premium * count;
-}
-function renderInsuranceCalculationPreview() {
-  if (!$('insurancePlannedTotalPreview')) return;
-  const item = {
-    premium:num($("insurancePremium").value), paymentFrequency:$("insuranceFrequency").value,
-    startDate:$("insuranceStartDate").value, paymentEndDate:$("insurancePaymentEndDate").value,
-    maturityAmount:num($("insuranceMaturityAmount").value), payoutType:$("insurancePayoutType").value,
-    payoutAmount:num($("insurancePayoutAmount").value), payoutCount:num($("insurancePayoutCount").value)
-  };
-  const paid=insurancePlannedPremiumTotal(item), receipt=insurancePlannedReceiptTotal(item), diff=receipt-paid;
-  $("insurancePlannedTotalPreview").textContent=receipt?yen(receipt):"—";
-  $("insurancePaidTotalPreview").textContent=paid?yen(paid):"—";
-  $("insuranceReturnDifferencePreview").textContent=(receipt&&paid)?signedYen(diff):"—";
-  $("insuranceReturnDifferencePreview").className=(receipt&&paid)?(diff<0?"negative":"positive"):"";
-}
 function addMonthsToDate(dateText, months) {
   const d=new Date(`${dateText}T00:00:00`); if(Number.isNaN(d.getTime())) return "";
   d.setMonth(d.getMonth()+months); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -2283,7 +2256,7 @@ function insuranceReceiptEvents(item) {
   if(!start || !amount || item.payoutType==="none") return [];
   const count=item.payoutType==="lump" ? 1 : Math.max(0,Math.floor(num(item.payoutCount)));
   const step=item.payoutType==="monthly" ? 1 : 12;
-  return Array.from({length:Math.min(count,600)},(_,i)=>({date:addMonthsToDate(start,i*step),amount,policyId:item.id,name:item.name||item.company||"保険受取",owner:item.owner,type:item.payoutType,category:item.category||"保険"})).filter(x=>x.date);
+  return Array.from({length:Math.min(count,600)},(_,i)=>({date:addMonthsToDate(start,i*step),amount,policyId:item.id,name:item.name||item.company||"保険受取",owner:item.owner,type:item.payoutType})).filter(x=>x.date);
 }
 function allInsuranceReceiptEvents() { return (state.insurancePolicies||[]).flatMap(insuranceReceiptEvents).sort((a,b)=>a.date.localeCompare(b.date)); }
 function insuranceReceiptByYear(year) { return allInsuranceReceiptEvents().filter(x=>Number(x.date.slice(0,4))===Number(year)).reduce((s,x)=>s+x.amount,0); }
@@ -2293,7 +2266,6 @@ function clearInsuranceForm() {
   ["insuranceCompany","insuranceName","insuranceInsured","insurancePolicyholder","insurancePremium","insuranceCoverage","insuranceCurrentValue","insuranceMaturityAmount","insuranceStartDate","insurancePaymentEndDate","insuranceRenewalDate","insuranceMaturityDate","insurancePayoutStartDate","insurancePayoutAmount","insurancePayoutCount","insuranceBeneficiary","insuranceMemo"].forEach(id=>$(id).value="");
   $("insurancePayoutType").value="none"; $("insuranceIncludeAssets").checked=false;
   $("saveInsuranceButton").textContent="保険を追加"; $("cancelInsuranceEdit").classList.add("hidden");
-  renderInsuranceCalculationPreview();
 }
 function renderInsurance() {
   const policies=state.insurancePolicies || [];
@@ -2327,18 +2299,14 @@ function renderInsurance() {
     const assetLabel=item.includeInAssets?`資産計上 ${yen(item.currentValue)}`:"資産計上なし";
     const group=isInsuranceSavingsType(item)?"満期・受取あり":"保障";
     const payoutTotal=insurancePlannedReceiptTotal(item);
-    const premiumTotal=insurancePlannedPremiumTotal(item);
-    const difference=(payoutTotal&&premiumTotal)?payoutTotal-premiumTotal:0;
     const payoutLabel=payoutTotal?`受取予定 ${yen(payoutTotal)}${item.payoutStartDate?`・${escapeHtml(item.payoutStartDate)}〜`:""}`:"受取予定なし";
-    const premiumTotalLabel=premiumTotal?`払込予定総額 ${yen(premiumTotal)}`:"払込予定総額 未計算";
-    const differenceLabel=(payoutTotal&&premiumTotal)?`差額 ${signedYen(difference)}`:"差額 未計算";
-    return `<article class="card insurance-card"><div class="item-head"><div><span class="insurance-category-chip">${escapeHtml(group)}｜${escapeHtml(item.category)}</span><div class="item-title">${escapeHtml(item.company || "保険会社未入力")} ${escapeHtml(item.name)}</div><div class="item-sub">名義 ${escapeHtml(item.owner)}${item.insuredPerson?`・被保険者 ${escapeHtml(item.insuredPerson)}`:""}</div></div><div class="item-value">${premiumLabel}</div></div><div class="insurance-card-grid"><span>保障 ${yen(item.coverageAmount)}</span><span>${assetLabel}</span><span>払込満了 ${item.paymentEndDate?escapeHtml(item.paymentEndDate):"未設定"}</span><span>満期 ${item.maturityDate?escapeHtml(item.maturityDate):"未設定"}</span><span class="full">${payoutLabel}</span><span>${premiumTotalLabel}</span><span class="${(payoutTotal&&premiumTotal)?(difference<0?"negative":"positive"):""}">${differenceLabel}</span><span>更新 ${item.renewalDate?escapeHtml(item.renewalDate):"未設定"}</span></div>${item.memo?`<p class="insurance-memo">${escapeHtml(item.memo)}</p>`:""}<div class="item-actions"><button class="edit-button" data-edit-insurance="${item.id}">編集</button><button class="delete-button" data-delete-insurance="${item.id}">削除</button></div></article>`;
+    return `<article class="card insurance-card"><div class="item-head"><div><span class="insurance-category-chip">${escapeHtml(group)}｜${escapeHtml(item.category)}</span><div class="item-title">${escapeHtml(item.company || "保険会社未入力")} ${escapeHtml(item.name)}</div><div class="item-sub">名義 ${escapeHtml(item.owner)}${item.insuredPerson?`・被保険者 ${escapeHtml(item.insuredPerson)}`:""}</div></div><div class="item-value">${premiumLabel}</div></div><div class="insurance-card-grid"><span>保障 ${yen(item.coverageAmount)}</span><span>${assetLabel}</span><span>払込満了 ${item.paymentEndDate?escapeHtml(item.paymentEndDate):"未設定"}</span><span>満期 ${item.maturityDate?escapeHtml(item.maturityDate):"未設定"}</span><span class="full">${payoutLabel}</span><span>更新 ${item.renewalDate?escapeHtml(item.renewalDate):"未設定"}</span></div>${item.memo?`<p class="insurance-memo">${escapeHtml(item.memo)}</p>`:""}<div class="item-actions"><button class="edit-button" data-edit-insurance="${item.id}">編集</button><button class="delete-button" data-delete-insurance="${item.id}">削除</button></div></article>`;
   }).join(""):'<div class="empty">保障の保険と、学資・個人年金など将来受取のある保険を分けて登録できます。</div>';
 }
 function renderTheme() { document.body.classList.toggle("dark", state.dark); $("themeButton").textContent = state.dark ? "☀️" : "🌙"; }
 function renderAll() {
   if ($("todayLabel")) $("todayLabel").textContent = formatTodayLabel();
-  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderInsurance(); renderLifeEvents(); renderBankAccounts(); renderRecurringPayments();
+  renderGreeting(); renderTheme(); renderHome(); renderFutureSimulation(); renderHistoryDashboard(); renderTransactions(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderStockSaleOptions(); renderStockSales(); renderPlans(); renderRanking(); renderDividendCalendar(); renderMortgage(); renderEducation(); renderSavingsGoals(); renderInsurance(); renderLifeEvents(); renderBankAccounts(); renderRecurringPayments();
   // 保険一覧の集計後に、ホームカードも同じ state から再同期する。
   renderHomeInsuranceSummary();
   $("cashInput").value = state.unallocatedCash || ""; $("loanInput").value = state.loan || ""; $("assetGoalInput").value = state.assetGoal || "";
@@ -2405,6 +2373,16 @@ $("saveAssetButton").addEventListener("click", () => {
   if (id) state.assets = state.assets.map(a => a.id === id ? data : a); else state.assets.push(data);
   saveState(); clearAssetForm(); renderAll();
 });
+$("saveStockSaleButton").addEventListener("click", () => {
+  const asset=state.assets.find(a=>a.id===$("saleAssetId").value); if(!asset)return alert("売却する銘柄を選択してください");
+  const qty=num($("saleQuantity").value), price=num($("salePrice").value), fee=num($("saleFee").value);
+  if(!qty||qty<=0)return alert("売却株数を入力してください"); if(qty>num(asset.quantity))return alert("保有株数を超えて売却できません"); if(!price)return alert("売却単価を入力してください");
+  const gross=qty*price, net=Math.max(0,gross-fee), profit=(price-num(asset.cost))*qty-fee, before=num(asset.quantity), ratio=before?Math.max(0,(before-qty)/before):0;
+  state.stockSales.push({id:uid(),assetId:asset.id,owner:asset.owner,name:asset.name,broker:asset.broker,account:asset.account,date:$("saleDate").value||today(),quantity:qty,price,fee,netProceeds:net,cost:asset.cost,realizedProfit:profit,bankAccountId:$("saleBankAccountId").value});
+  asset.quantity=Math.max(0,before-qty); asset.dividend=Math.round(num(asset.dividend)*ratio);
+  const bank=state.bankAccounts.find(b=>b.id===$("saleBankAccountId").value); if(bank){bank.balance=num(bank.balance)+net;bank.updatedAt=$("saleDate").value||today();}
+  saveState(); clearStockSaleForm(); $("stockSaleEditor").open=false; renderAll(); alert(`${asset.name} ${qty.toLocaleString("ja-JP")}株の売却を記録しました。`);
+});
 $("savePlanButton").addEventListener("click", () => {
   const name = $("planName").value.trim();
   if (!name) return alert("商品名を入力してください");
@@ -2422,7 +2400,9 @@ $("savePlanButton").addEventListener("click", () => {
     broker: $("planBroker").value.trim(),
     account: $("planAccount").value,
     invested: $("planInvested").value === "" ? null : num($("planInvested").value),
-    value: $("planValue").value === "" ? null : num($("planValue").value)
+    value: $("planValue").value === "" ? null : num($("planValue").value),
+    active: id ? (state.plans.find(p => p.id === id)?.active !== false) : true,
+    stoppedAt: id ? (state.plans.find(p => p.id === id)?.stoppedAt || "") : ""
   };
   if (id) state.plans = state.plans.map(p => p.id === id ? data : p); else state.plans.push(data);
   saveState(); clearPlanForm(); renderAll();
@@ -2504,6 +2484,15 @@ document.addEventListener("click", e => {
       saveState();
       renderAll();
     }
+  }
+  if (d.togglePlan) {
+    const plan=state.plans.find(p=>p.id===d.togglePlan); if(plan){
+      if(plan.active===false){ if(confirm(`${plan.name}の積立を再開しますか？`)){ plan.active=true; plan.stoppedAt=""; saveState(); renderAll(); } }
+      else if(confirm(`${plan.name}の積立を停止しますか？\n保有中の評価額・買付履歴は残ります。`)){ plan.active=false; plan.stoppedAt=today(); saveState(); renderAll(); }
+    }
+  }
+  if (d.sellAsset) {
+    setInvestmentView("assets"); renderStockSaleOptions(d.sellAsset); $("stockSaleEditor").open=true; $("saleDate").value=today(); $("stockSaleEditor").scrollIntoView({behavior:"smooth",block:"center"});
   }
   if (d.deleteAsset && confirm("この保有資産を削除しますか？")) { state.assets = state.assets.filter(a => a.id !== d.deleteAsset); saveState(); renderAll(); }
   if (d.findAsset) {
@@ -2635,7 +2624,7 @@ $("saveNisaUsageButton").addEventListener("click", () => {
 });
 document.querySelectorAll(".owner-tab").forEach(b => b.addEventListener("click", () => {
   currentOwner = b.dataset.owner; document.querySelectorAll(".owner-tab").forEach(x => x.classList.toggle("active", x === b));
-  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); clearDividendReceiptForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
+  clearAssetForm(); clearPlanForm(); clearNisaPurchaseForm(); clearDividendReceiptForm(); renderOwnerSummary(); renderInvestmentAnalysis(); renderNisaUsage(); renderAssets(); renderStockSaleOptions(); renderStockSales(); renderPlans(); renderRanking(); renderDividendCalendar(); setInvestmentView(currentInvestmentView);
 }));
 document.querySelectorAll(".investment-view-tab").forEach(b => b.addEventListener("click", () => setInvestmentView(b.dataset.investView)));
 document.querySelectorAll(".ranking-tab").forEach(b => b.addEventListener("click", () => {
@@ -2778,11 +2767,6 @@ $("saveInsuranceButton").addEventListener("click", () => {
   saveState(); clearInsuranceForm(); renderAll();
 });
 $("cancelInsuranceEdit").addEventListener("click", clearInsuranceForm);
-["insurancePremium","insuranceFrequency","insuranceStartDate","insurancePaymentEndDate","insuranceMaturityAmount","insurancePayoutType","insurancePayoutAmount","insurancePayoutCount"].forEach(id=>{
-  $(id)?.addEventListener("input",renderInsuranceCalculationPreview);
-  $(id)?.addEventListener("change",renderInsuranceCalculationPreview);
-});
-
 document.addEventListener("click", event=>{
   const edit=event.target.closest("[data-edit-insurance]");
   if(edit){ const item=state.insurancePolicies.find(x=>x.id===edit.dataset.editInsurance); if(!item)return;
@@ -2792,7 +2776,7 @@ document.addEventListener("click", event=>{
     $("insuranceStartDate").value=item.startDate; $("insurancePaymentEndDate").value=item.paymentEndDate||""; $("insuranceRenewalDate").value=item.renewalDate; $("insuranceMaturityDate").value=item.maturityDate;
     $("insurancePayoutType").value=item.payoutType||"none"; $("insurancePayoutStartDate").value=item.payoutStartDate||""; $("insurancePayoutAmount").value=item.payoutAmount||""; $("insurancePayoutCount").value=item.payoutCount||"";
     $("insuranceBeneficiary").value=item.beneficiary; $("insuranceIncludeAssets").checked=Boolean(item.includeInAssets); $("insuranceMemo").value=item.memo;
-    $("saveInsuranceButton").textContent="変更を保存"; $("cancelInsuranceEdit").classList.remove("hidden"); renderInsuranceCalculationPreview(); $("insuranceEditor").open=true; $("insuranceEditor").scrollIntoView({behavior:"smooth",block:"start"}); return; }
+    $("saveInsuranceButton").textContent="変更を保存"; $("cancelInsuranceEdit").classList.remove("hidden"); $("insuranceEditor").open=true; $("insuranceEditor").scrollIntoView({behavior:"smooth",block:"start"}); return; }
   const del=event.target.closest("[data-delete-insurance]"); if(del && confirm("この保険を削除しますか？")){ state.insurancePolicies=state.insurancePolicies.filter(x=>x.id!==del.dataset.deleteInsurance); saveState(); renderAll(); }
 });
 $("saveRecurringPaymentButton")?.addEventListener("click", () => {
@@ -2874,7 +2858,7 @@ $("themeButton").addEventListener("click", () => { state.dark = !state.dark; sav
 $("saveFutureSimulation").addEventListener("click", () => { state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; saveState(); renderFutureSimulation(); alert("未来シミュレーション条件を保存しました"); });
 ["futureReturnRate","futureMonthlyExtra","futureHorizon"].forEach(id=>$(id)?.addEventListener("input",()=>{ state.futureSimulation={annualReturn:num($("futureReturnRate").value),monthlyExtra:num($("futureMonthlyExtra").value),horizon:Number($("futureHorizon").value)||20}; renderFutureSimulation(); }));
 $("exportButton").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ version: "8.0-beta30-insurance-income", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
+  const blob = new Blob([JSON.stringify({ version: "8.0-beta29-annual-cashflow", exportedAt: new Date().toISOString(), data: state }, null, 2)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = `sakai-money-pro-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $("importInput").addEventListener("change", async e => {
